@@ -1,0 +1,2345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode Config Editor</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161920; --panel2: #1c2029; --border: #2a2f3a; --text: #e3e6ec;
+    --muted: #8a91a0; --accent: #6aa9ff; --accent2: #3d7be0; --ok: #4cc38a; --warn: #e5b452;
+    --danger: #ef6b6b; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  .muted { color: var(--muted); }
+  .grow { flex: 1; }
+  .err { color: var(--danger); }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  button.danger { color: var(--danger); }
+  button.danger:hover { border-color: var(--danger); }
+  button.icon { padding: 2px 7px; background: transparent; border-color: transparent; color: var(--muted); }
+  button.icon:hover { color: var(--text); border-color: var(--border); }
+  button.small { padding: 2px 8px; font-size: 12.5px; }
+  input[type=text], input[type=password], input[type=number], input:not([type]), select, textarea {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%; outline: none; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; font-family: var(--mono); font-size: 12.5px; }
+  input[type=checkbox] { accent-color: var(--accent2); width: 15px; height: 15px; margin: 0; cursor: pointer; }
+
+  #app { height: 100%; }
+  .boot { padding: 40px; color: var(--muted); }
+  .shell { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 10px 0 0; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  .filechip { font-family: var(--mono); font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 12px; padding: 2px 10px; }
+  .filechip b { color: var(--warn); font-weight: normal; }
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr) minmax(320px, 38%); min-height: 0; }
+  .layout.no-output { grid-template-columns: 250px minmax(0, 1fr); }
+  aside, .editor, .output { overflow: auto; min-height: 0; }
+  aside { border-right: 1px solid var(--border); background: var(--panel); padding: 10px 8px; }
+  .navitem { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+  .navitem:hover { background: var(--panel2); }
+  .navitem.active { background: #23324d; }
+  .navitem .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .navitem .count { margin-left: auto; font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+  .navitem.off .title { text-decoration: line-through; color: var(--muted); }
+  .navlabel { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 9px 4px; }
+  .editor { padding: 18px 22px 60px; }
+  .output { border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+  .output .tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); align-items: center; position: sticky; top: 0; background: var(--panel); }
+  .tab { background: transparent; border-color: transparent; }
+  .tab.active { border-color: var(--border); background: var(--panel2); }
+  .output pre { margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12px; white-space: pre; flex: 1; }
+  .changes { padding: 10px 14px; }
+  .change { font-family: var(--mono); font-size: 12px; padding: 3px 0; border-bottom: 1px dashed var(--border); display: flex; gap: 8px; }
+  .change .k { width: 62px; flex: none; }
+  .k.added { color: var(--ok); } .k.removed { color: var(--danger); } .k.changed { color: var(--warn); }
+  .warnings { padding: 8px 14px; border-bottom: 1px solid var(--border); background: #2a2414; color: var(--warn); font-size: 12.5px; }
+  .warnings div::before { content: "⚠ "; }
+
+  h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  .pe-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  details.card > summary { cursor: pointer; font-weight: 600; }
+  details.card[open] > summary { margin-bottom: 12px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .field > span { font-size: 12px; color: var(--muted); }
+  .field > small { font-size: 11.5px; color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .json-editor .row { margin-top: 6px; }
+  .pwd { display: flex; gap: 4px; }
+  .note { font-size: 12.5px; color: var(--muted); }
+  .fetchbox { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .toolbar input[type=text] { width: 220px; }
+  .toolbar select { width: auto; }
+  .mlist { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .mrow { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  .mrow:last-child { border-bottom: none; }
+  .mrow:hover { background: var(--panel2); }
+  .mrow.off .mid .mono { color: var(--muted); text-decoration: line-through; }
+  .mrow .mid { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: baseline; cursor: pointer; overflow: hidden; }
+  .mrow .mid > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 9px; border: 1px solid var(--border); color: var(--muted); flex: none; font-family: var(--mono); }
+  .badge.new { color: var(--ok); border-color: var(--ok); }
+  .badge.stale { color: var(--warn); border-color: var(--warn); }
+  .badge.cfg { color: var(--accent); border-color: var(--accent); }
+  .medit { padding: 12px 14px 14px 36px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; width: min(680px, 94vw); max-height: 90vh; overflow: auto; }
+  .modal h3 { font-size: 16px; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .tpls { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .tpl { text-align: left; padding: 8px 10px; }
+  .tpl.active { border-color: var(--accent); background: #23324d; }
+  .tpl small { display: block; color: var(--muted); font-size: 11.5px; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--border); padding: 8px 16px; border-radius: 8px; z-index: 20; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+  .toast.error { border-color: var(--danger); }
+  .dropzone { position: fixed; inset: 0; background: rgba(61,123,224,.18); border: 3px dashed var(--accent); z-index: 30; display: flex; align-items: center; justify-content: center; font-size: 22px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="app"><div class="boot">Loading editor… (requires access to cdn.jsdelivr.net)</div></div>
+<script>
+  setTimeout(function () {
+    if (!window.__appMounted) document.querySelector('.boot').textContent =
+      'Failed to load dependencies from cdn.jsdelivr.net. Check your network connection.';
+  }, 8000);
+</script>
+<script type="module">
+import { html, render, useState, useEffect, useMemo, useRef } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
+import * as jsonc from 'https://cdn.jsdelivr.net/npm/jsonc-parser@3.3.1/+esm';
+
+// ---------------------------------------------------------------- constants
+
+const LS_KEY = 'opencode-config-editor:v1';
+const SCHEMA_URL = 'https://opencode.ai/config.json';
+
+const KNOWN_BASE = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+  google: 'https://generativelanguage.googleapis.com/v1beta',
+  groq: 'https://api.groq.com/openai/v1',
+  deepseek: 'https://api.deepseek.com/v1',
+  mistral: 'https://api.mistral.ai/v1',
+  xai: 'https://api.x.ai/v1',
+  togetherai: 'https://api.together.xyz/v1',
+  fireworks: 'https://api.fireworks.ai/inference/v1',
+  cerebras: 'https://api.cerebras.ai/v1',
+  ollama: 'http://localhost:11434/v1',
+  lmstudio: 'http://127.0.0.1:1234/v1',
+};
+
+const V2_PACKAGES = () => ['@opencode/ai/providers/openai-compatible', ...NPM_PACKAGES.map(n => 'aisdk:' + n)];
+
+const NPM_PACKAGES = [
+  '@ai-sdk/openai-compatible', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google',
+  '@ai-sdk/google-vertex', '@ai-sdk/azure', '@ai-sdk/amazon-bedrock', '@ai-sdk/mistral',
+  '@ai-sdk/groq', '@ai-sdk/xai', '@ai-sdk/deepseek', '@ai-sdk/togetherai', '@ai-sdk/cerebras',
+  '@openrouter/ai-sdk-provider',
+];
+
+const TEMPLATES = [
+  { key: 'custom', label: 'OpenAI-compatible', desc: 'Any /v1 compatible endpoint', id: 'my-provider',
+    obj: { npm: '@ai-sdk/openai-compatible', name: 'My Provider', options: { baseURL: 'https://api.example.com/v1', apiKey: '{env:MY_PROVIDER_API_KEY}' } } },
+  { key: 'ollama', label: 'Ollama', desc: 'Local, localhost:11434', id: 'ollama',
+    obj: { npm: '@ai-sdk/openai-compatible', name: 'Ollama', options: { baseURL: 'http://localhost:11434/v1' } } },
+  { key: 'lmstudio', label: 'LM Studio', desc: 'Local, 127.0.0.1:1234', id: 'lmstudio',
+    obj: { npm: '@ai-sdk/openai-compatible', name: 'LM Studio', options: { baseURL: 'http://127.0.0.1:1234/v1' } } },
+  { key: 'llamacpp', label: 'llama.cpp server', desc: 'Local, 127.0.0.1:8080', id: 'llama.cpp',
+    obj: { npm: '@ai-sdk/openai-compatible', name: 'llama.cpp', options: { baseURL: 'http://127.0.0.1:8080/v1' } } },
+  { key: 'litellm', label: 'LiteLLM proxy', desc: 'OpenAI-compatible gateway', id: 'litellm',
+    obj: { npm: '@ai-sdk/openai-compatible', name: 'LiteLLM', options: { baseURL: 'http://localhost:4000/v1', apiKey: '{env:LITELLM_API_KEY}' } } },
+  { key: 'anthropic-compat', label: 'Anthropic-compatible', desc: 'Gateway with /v1/messages', id: 'my-anthropic',
+    obj: { npm: '@ai-sdk/anthropic', name: 'My Anthropic Gateway', options: { baseURL: 'https://api.example.com/v1', apiKey: '{env:MY_GATEWAY_API_KEY}' } } },
+  { key: 'openrouter', label: 'OpenRouter', desc: 'Built-in provider', id: 'openrouter', builtin: true, obj: {} },
+  { key: 'openai', label: 'OpenAI', desc: 'Built-in provider', id: 'openai', builtin: true, obj: {} },
+  { key: 'anthropic', label: 'Anthropic', desc: 'Built-in provider', id: 'anthropic', builtin: true, obj: {} },
+  { key: 'google', label: 'Google Gemini', desc: 'Built-in provider', id: 'google', builtin: true, obj: {} },
+  { key: 'empty', label: 'Empty', desc: 'Start from scratch', id: 'provider', obj: {} },
+];
+
+const MODES = {
+  v1: {
+    omit: 'Omit disabled models from "models"',
+    blacklist: 'Keep all, list disabled in "blacklist"',
+    whitelist: 'Keep all, list enabled in "whitelist"',
+  },
+  v2: {
+    disabled: 'Mark disabled models with "disabled": true',
+    omit: 'Omit disabled models from "models"',
+  },
+};
+
+// ---------------------------------------------------------------- helpers
+
+const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+const clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+const uniq = arr => [...new Set(arr)];
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a)) return Array.isArray(b) && a.length === b.length && a.every((x, i) => deepEqual(x, b[i]));
+  if (isObj(a) && isObj(b)) {
+    const ka = Object.keys(a), kb = Object.keys(b);
+    return ka.length === kb.length && ka.every(k => hasOwn(b, k) && deepEqual(a[k], b[k]));
+  }
+  return false;
+}
+
+// Set a nested value; `undefined` deletes and prunes parents left empty (never `o` itself).
+function setIn(o, path, v) {
+  if (v === undefined) {
+    const stack = [];
+    let cur = o;
+    for (let i = 0; i < path.length - 1; i++) {
+      if (!isObj(cur[path[i]])) return;
+      stack.push([cur, path[i]]);
+      cur = cur[path[i]];
+    }
+    delete cur[path[path.length - 1]];
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const [parent, key] = stack[i];
+      if (Object.keys(parent[key]).length === 0) delete parent[key]; else break;
+    }
+    return;
+  }
+  let cur = o;
+  for (let i = 0; i < path.length - 1; i++) {
+    if (!isObj(cur[path[i]])) cur[path[i]] = {};
+    cur = cur[path[i]];
+  }
+  cur[path[path.length - 1]] = v;
+}
+
+function lineCol(text, offset) {
+  const before = text.slice(0, offset).split('\n');
+  return { line: before.length, col: before[before.length - 1].length + 1 };
+}
+
+function parseJsonc(text) {
+  const errors = [];
+  const v = jsonc.parse(text, errors, { allowTrailingComma: true, disallowComments: false });
+  if (errors.length) {
+    const e = errors[0], pos = lineCol(text, e.offset);
+    throw new Error(`${jsonc.printParseErrorCode(e.error)} at line ${pos.line}, column ${pos.col}`);
+  }
+  return v;
+}
+
+function fmtTokens(n) {
+  if (typeof n !== 'number') return '';
+  if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M';
+  if (n >= 1e3) return Math.round(n / 1e3) + 'k';
+  return String(n);
+}
+
+const isSecretRef = s => typeof s === 'string' && /\{(env|file):/.test(s);
+
+// ---------------------------------------------------------------- store
+
+const S = {
+  config: { $schema: SCHEMA_URL },
+  origText: null,      // imported file text (JSONC); output is produced by applying edits to it
+  origConfig: null,
+  fileName: 'opencode.json',
+  stash: {},           // pid -> modelId -> model config not currently in "models" (fetched / omitted)
+  meta: {},            // pid -> { mode, fetchUrl, auth, fetched, fetchedAt, newIds }
+  settings: { corsProxy: '' },
+  selected: '__general',
+};
+const UI = { modal: null, toast: null, outputTab: 'output', showOutput: true, dragging: false };
+const sessionKeys = {}; // API keys typed for fetching only; never persisted
+
+let version = 0;
+const listeners = new Set();
+const bump = () => { version++; listeners.forEach(l => l()); };
+const history = [], future = [];
+let lastKey = null, lastTime = 0;
+
+const snapshot = () => JSON.stringify({ config: S.config, stash: S.stash, meta: S.meta, selected: S.selected });
+function restore(snap) { Object.assign(S, JSON.parse(snap)); }
+
+function persist() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      config: S.config, origText: S.origText, fileName: S.fileName, stash: S.stash,
+      meta: S.meta, settings: S.settings, selected: S.selected,
+    }));
+  } catch (e) { console.warn('persist failed', e); }
+}
+
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(LS_KEY));
+    if (d && isObj(d.config)) {
+      Object.assign(S, d);
+      S.settings = { corsProxy: '', ...(d.settings || {}) };
+      S.origConfig = S.origText != null ? parseJsonc(S.origText) : null;
+    }
+  } catch (e) { console.warn('load failed', e); }
+}
+
+// Mutations with the same key within a short window coalesce into one undo step (typing).
+function mutate(fn, key) {
+  const now = Date.now();
+  if (!(key && key === lastKey && now - lastTime < 1500)) {
+    history.push(snapshot());
+    if (history.length > 200) history.shift();
+    future.length = 0;
+  }
+  lastKey = key; lastTime = now;
+  fn();
+  persist();
+  bump();
+}
+function undo() { if (!history.length) return; future.push(snapshot()); restore(history.pop()); lastKey = null; persist(); bump(); }
+function redo() { if (!future.length) return; history.push(snapshot()); restore(future.pop()); lastKey = null; persist(); bump(); }
+function setUI(patch) { Object.assign(UI, patch); bump(); }
+
+let toastTimer;
+function toast(msg, error = false) {
+  clearTimeout(toastTimer);
+  setUI({ toast: { msg, error } });
+  toastTimer = setTimeout(() => setUI({ toast: null }), 3500);
+}
+
+function useStore() {
+  const [, set] = useState(0);
+  useEffect(() => { const l = () => set(v => v + 1); listeners.add(l); return () => listeners.delete(l); }, []);
+}
+
+// ---------------------------------------------------------------- providers & models
+//
+// Provider entries can live in the V1 map ("provider": npm/options/blacklist...) or the native
+// V2 map ("providers": package/settings/headers/body/compatibility, models with "disabled").
+// OpenCode 2 reads both, but each entry must be entirely one format.
+
+const v1Map = () => isObj(S.config.provider) ? S.config.provider : {};
+const v2Map = () => isObj(S.config.providers) ? S.config.providers : {};
+const providers = () => ({ ...v1Map(), ...v2Map() }); // V2 wins when an id is in both
+const prov = pid => providers()[pid];
+const fmtOf = pid => hasOwn(v2Map(), pid) ? 'v2' : 'v1';
+const rootKey = pid => fmtOf(pid) === 'v2' ? 'providers' : 'provider';
+
+// Where each concept lives per format.
+const PATHS = {
+  v1: { pkg: ['npm'], baseURL: ['options', 'baseURL'], apiKey: ['options', 'apiKey'], headers: ['options', 'headers'], modelId: ['id'] },
+  v2: { pkg: ['package'], baseURL: ['settings', 'baseURL'], apiKey: ['settings', 'apiKey'], headers: ['headers'], modelId: ['modelID'] },
+};
+const P = pid => PATHS[fmtOf(pid)];
+const getIn = (o, path) => path.reduce((x, k) => (x == null ? undefined : x[k]), o);
+const pkgOf = p => (isObj(p) && (p.package || p.npm)) || '';
+const isCustom = p => isObj(p) && !!(p.npm || p.package || p.options?.baseURL || p.settings?.baseURL);
+// Ids that make OpenCode treat a model as Anthropic (and attach cache_control in 1.x).
+const isClaude = (id, obj) => /claude|anthropic/i.test(id + ' ' + (obj?.modelID || obj?.id || ''));
+
+function inferMode(pid, p) {
+  if (fmtOf(pid) === 'v2') return 'disabled';
+  if (!isObj(p)) return 'omit';
+  if (Array.isArray(p.whitelist)) return 'whitelist';
+  if (Array.isArray(p.blacklist) && p.blacklist.length) return 'blacklist';
+  if (!isCustom(p)) return 'blacklist'; // built-in provider: models come from the catalog
+  return 'omit';
+}
+function meta(pid) {
+  const m = S.meta[pid] ||= {};
+  if (!MODES[fmtOf(pid)][m.mode]) m.mode = inferMode(pid, prov(pid));
+  return m;
+}
+
+function modelState(pid) {
+  const p = prov(pid) || {}, m = meta(pid);
+  const models = isObj(p.models) ? p.models : {};
+  const stash = S.stash[pid] || {};
+  if (fmtOf(pid) === 'v2') {
+    const isDis = id => isObj(models[id]) && models[id].disabled === true;
+    const known = uniq([...Object.keys(models), ...Object.keys(stash), ...(m.fetched || [])]);
+    const enabled = m.mode === 'omit'
+      ? new Set(Object.keys(models).filter(id => !isDis(id)))
+      // Built-in providers serve catalog models that aren't listed; custom ones only serve listed models.
+      : new Set(known.filter(id => hasOwn(models, id) ? !isDis(id) : !isCustom(p)));
+    return { known, enabled, models, stash, bl: [], wl: null };
+  }
+  const bl = Array.isArray(p.blacklist) ? p.blacklist : [];
+  const wl = Array.isArray(p.whitelist) ? p.whitelist : null;
+  const known = uniq([...Object.keys(models), ...Object.keys(stash), ...bl, ...(wl || []), ...(m.fetched || [])]);
+  let enabled;
+  if (m.mode === 'whitelist') enabled = new Set((wl || []).filter(id => !bl.includes(id)));
+  else if (m.mode === 'blacklist') enabled = new Set(known.filter(id => !bl.includes(id)));
+  else enabled = new Set(Object.keys(models).filter(id => !bl.includes(id)));
+  return { known, enabled, models, stash, bl, wl };
+}
+
+// Rewrite the provider so exactly `enabled` models are active under `mode`.
+function applyEnabled(pid, enabled, mode) {
+  const p = prov(pid);
+  const st = modelState(pid);
+  const stash = S.stash[pid] ||= {};
+  const v2 = fmtOf(pid) === 'v2';
+  if (!isObj(p.models)) p.models = {};
+  for (const id of st.known) {
+    const inModels = hasOwn(p.models, id);
+    // Built-in providers get models from the catalog, so only add entries that carry config.
+    const fromStash = hasOwn(stash, id) && (isCustom(p) || Object.keys(stash[id] || {}).length > 0);
+    if (enabled.has(id)) {
+      if (inModels) {
+        if (v2 && isObj(p.models[id]) && hasOwn(p.models[id], 'disabled')) {
+          delete p.models[id].disabled;
+          if (!isCustom(p) && !Object.keys(p.models[id]).length) delete p.models[id];
+        }
+      } else if (mode === 'omit' || fromStash) {
+        p.models[id] = stash[id] ?? {};
+        delete stash[id];
+      }
+    } else if (mode === 'omit') {
+      if (inModels) {
+        stash[id] = p.models[id];
+        if (isObj(stash[id])) delete stash[id].disabled;
+        delete p.models[id];
+      }
+    } else if (v2 && mode === 'disabled') {
+      if (inModels) {
+        if (!isObj(p.models[id])) p.models[id] = {};
+        p.models[id].disabled = true;
+      } else if (!isCustom(p)) {
+        p.models[id] = { ...(isObj(stash[id]) ? stash[id] : {}), disabled: true };
+        delete stash[id];
+      }
+    }
+  }
+  if (!v2) {
+    const disabled = st.known.filter(id => !enabled.has(id));
+    if (mode === 'blacklist' && disabled.length) p.blacklist = disabled; else delete p.blacklist;
+    if (mode === 'whitelist') p.whitelist = st.known.filter(id => enabled.has(id)); else delete p.whitelist;
+  }
+  if (!Object.keys(p.models).length) delete p.models;
+  meta(pid).mode = mode;
+}
+
+function setEnabled(pid, ids, on) {
+  mutate(() => {
+    const st = modelState(pid);
+    const E = new Set(st.enabled);
+    ids.forEach(id => on ? E.add(id) : E.delete(id));
+    applyEnabled(pid, E, meta(pid).mode);
+  });
+}
+
+function setMode(pid, mode) {
+  mutate(() => applyEnabled(pid, modelState(pid).enabled, mode));
+}
+
+// The object holding a model's config: in "models" if present (or if it is active), else the stash.
+function modelObj(pid, id, create) {
+  const p = prov(pid);
+  if (isObj(p.models) && isObj(p.models[id])) return p.models[id];
+  const stash = S.stash[pid] ||= {};
+  if (!create) return stash[id];
+  if (modelState(pid).enabled.has(id)) {
+    if (!isObj(p.models)) p.models = {};
+    p.models[id] = isObj(stash[id]) ? stash[id] : {};
+    delete stash[id];
+    return p.models[id];
+  }
+  if (!isObj(stash[id])) stash[id] = {};
+  return stash[id];
+}
+
+function setModelField(pid, id, path, v) {
+  mutate(() => setIn(modelObj(pid, id, true), path, v), `m:${pid}:${id}:${path.join('.')}`);
+}
+
+function replaceModel(pid, id, v) {
+  mutate(() => {
+    const p = prov(pid);
+    if (isObj(p.models) && hasOwn(p.models, id)) p.models[id] = v ?? {};
+    else if (modelState(pid).enabled.has(id) && meta(pid).mode !== 'blacklist') { p.models ||= {}; p.models[id] = v ?? {}; }
+    else (S.stash[pid] ||= {})[id] = v ?? {};
+  });
+}
+
+function addModel(pid, id) {
+  id = id.trim();
+  if (!id) return;
+  if (modelState(pid).known.includes(id)) { toast(`Model "${id}" already exists`, true); return; }
+  mutate(() => {
+    (S.stash[pid] ||= {})[id] = {};
+    const E = new Set(modelState(pid).enabled); E.add(id);
+    applyEnabled(pid, E, meta(pid).mode);
+  });
+}
+
+function removeModels(pid, ids) {
+  mutate(() => {
+    const p = prov(pid), m = meta(pid);
+    for (const id of ids) {
+      if (isObj(p.models)) delete p.models[id];
+      if (S.stash[pid]) delete S.stash[pid][id];
+      if (Array.isArray(p.blacklist)) p.blacklist = p.blacklist.filter(x => x !== id);
+      if (Array.isArray(p.whitelist)) p.whitelist = p.whitelist.filter(x => x !== id);
+      if (m.fetched) m.fetched = m.fetched.filter(x => x !== id);
+    }
+    if (isObj(p.models) && !Object.keys(p.models).length) delete p.models;
+    if (Array.isArray(p.blacklist) && !p.blacklist.length) delete p.blacklist;
+  });
+}
+
+function renameProvider(old, nw) {
+  nw = (nw || '').trim();
+  if (!nw || nw === old) return;
+  if (hasOwn(providers(), nw)) { toast(`Provider "${nw}" already exists`, true); return; }
+  mutate(() => {
+    const key = rootKey(old);
+    const out = {};
+    for (const k of Object.keys(S.config[key])) out[k === old ? nw : k] = S.config[key][k];
+    S.config[key] = out;
+    for (const store of [S.meta, S.stash]) if (store[old]) { store[nw] = store[old]; delete store[old]; }
+    const fix = v => typeof v === 'string' && v.startsWith(old + '/') ? nw + v.slice(old.length) : v;
+    for (const k of ['model', 'small_model']) if (hasOwn(S.config, k)) S.config[k] = fix(S.config[k]);
+    for (const sect of ['agent', 'agents', 'mode']) {
+      if (isObj(S.config[sect])) for (const a of Object.values(S.config[sect])) if (isObj(a) && a.model) a.model = fix(a.model);
+    }
+    for (const k of ['disabled_providers', 'enabled_providers']) {
+      if (Array.isArray(S.config[k])) S.config[k] = S.config[k].map(x => x === old ? nw : x);
+    }
+    S.selected = nw;
+  });
+}
+
+function deleteProvider(pid) {
+  if (!confirm(`Delete provider "${pid}" from the config?`)) return;
+  mutate(() => {
+    const key = rootKey(pid);
+    delete S.config[key][pid];
+    if (!Object.keys(S.config[key]).length) delete S.config[key];
+    if (!hasOwn(providers(), pid)) { delete S.meta[pid]; delete S.stash[pid]; }
+    S.selected = Object.keys(providers())[0] || '__general';
+  });
+}
+
+function toggleProviderDisabled(pid, disable) {
+  mutate(() => {
+    let arr = Array.isArray(S.config.disabled_providers) ? S.config.disabled_providers.filter(x => x !== pid) : [];
+    if (disable) arr.push(pid);
+    if (arr.length) S.config.disabled_providers = arr; else delete S.config.disabled_providers;
+  });
+}
+
+function addProvider(id, tpl, format) {
+  mutate(() => {
+    const key = format === 'v2' ? 'providers' : 'provider';
+    if (!isObj(S.config[key])) S.config[key] = {};
+    S.config[key][id] = format === 'v2' ? v1ProviderToV2(clone(tpl.obj)).obj : clone(tpl.obj);
+    S.meta[id] = {};
+    S.selected = id;
+  });
+}
+
+function setProviderEntry(pid, v) {
+  mutate(() => { S.config[rootKey(pid)][pid] = v; });
+}
+
+// ---------------------------------------------------------------- V1 -> V2 conversion
+// Mapping per https://opencode.ai/v2/docs/migrate-v1/
+
+const NATIVE_OAI = '@opencode/ai/providers/openai-compatible';
+const ZEN_ID = 'opencode'; // built-in OpenCode Zen provider
+const V1_IGNORED_MODEL_FIELDS = ['release_date', 'attachment', 'reasoning', 'temperature', 'experimental'];
+
+function v1ModelToV2(mo, notes, where) {
+  if (!isObj(mo)) return mo;
+  const out = {};
+  const caps = () => (out.capabilities ||= {});
+  for (const [k, v] of Object.entries(mo)) {
+    if (k === 'id') out.modelID = v;
+    else if (k === 'tool_call') caps().tools = v;
+    else if (k === 'modalities' && isObj(v)) {
+      if (v.input) caps().input = v.input;
+      if (v.output) caps().output = v.output;
+    } else if (k === 'status') {
+      if (v === 'deprecated') out.disabled = true; else notes.push(`${where}: dropped "status": "${v}" (V2 only supports deprecated → disabled)`);
+    } else if (k === 'options') out.settings = { ...(out.settings || {}), ...(isObj(v) ? v : {}) };
+    else if (k === 'cost' && isObj(v)) {
+      const { cache_read, cache_write, ...rest } = v;
+      out.cost = { ...rest };
+      if (cache_read !== undefined || cache_write !== undefined) {
+        out.cost.cache = {};
+        if (cache_read !== undefined) out.cost.cache.read = cache_read;
+        if (cache_write !== undefined) out.cost.cache.write = cache_write;
+      }
+    } else if (k === 'variants' && isObj(v)) {
+      out.variants = Object.entries(v).map(([id, vv]) => isObj(vv) && Object.keys(vv).length ? { id, settings: vv } : { id });
+      notes.push(`${where}: variants converted to an array with their options under "settings" — review them`);
+    } else if (k === 'interleaved' && typeof v === 'boolean') notes.push(`${where}: dropped boolean "interleaved" (ignored by V2)`);
+    else if (V1_IGNORED_MODEL_FIELDS.includes(k)) notes.push(`${where}: dropped "${k}" (ignored by V2)`);
+    else out[k] = v;
+  }
+  return out;
+}
+
+function v1ProviderToV2(p, pid = 'provider') {
+  const notes = [];
+  if (!isObj(p)) return { obj: p, notes };
+  const out = {};
+  const settings = () => (out.settings ||= {});
+  for (const [k, v] of Object.entries(p)) {
+    if (k === 'npm') {
+      out.package = v === '@ai-sdk/openai-compatible' ? NATIVE_OAI : String(v).startsWith('aisdk:') ? v : 'aisdk:' + v;
+      if (v === '@ai-sdk/openai-compatible') notes.push(`${pid}: "@ai-sdk/openai-compatible" → native "${NATIVE_OAI}" (supports "compatibility")`);
+    } else if (k === 'api') { if (typeof v === 'string') settings().baseURL ??= v; }
+    else if (k === 'options' && isObj(v)) {
+      for (const [ok, ov] of Object.entries(v)) {
+        if (ok === 'headers') out.headers = ov;
+        else if (ok === 'setCacheKey') (out.compatibility ||= {}).supportsPromptCacheKey = ov;
+        else settings()[ok] = ov;
+      }
+    } else if (k === 'models' && isObj(v)) {
+      out.models = {};
+      for (const [mid, mo] of Object.entries(v)) out.models[mid] = v1ModelToV2(mo, notes, `${pid}/${mid}`);
+    } else if (k === 'whitelist' || k === 'blacklist') { /* handled below */ }
+    else if (k === 'id') notes.push(`${pid}: dropped provider "id" (ignored by V2)`);
+    else out[k] = v;
+  }
+  const disable = id => {
+    out.models ||= {};
+    out.models[id] = { ...(isObj(out.models[id]) ? out.models[id] : {}), disabled: true };
+  };
+  if (Array.isArray(p.blacklist)) p.blacklist.forEach(disable);
+  if (Array.isArray(p.whitelist)) {
+    Object.keys(out.models || {}).filter(id => !p.whitelist.includes(id)).forEach(disable);
+    if (!isCustom(p)) notes.push(`${pid}: whitelist can only be converted for models listed in the config; other catalog models stay enabled`);
+  }
+  return { obj: out, notes };
+}
+
+function convertProviderToV2(pid) {
+  if (fmtOf(pid) === 'v2') return;
+  const { obj, notes } = v1ProviderToV2(clone(prov(pid)), pid);
+  if (hasOwn(v2Map(), pid)) { toast(`"providers" already has an entry named ${pid}`, true); return; }
+  const msg = `Convert "${pid}" to the native OpenCode 2 format?\n\nIt moves from "provider" to "providers"; npm → package, options → settings/headers, ` +
+    `blacklist/whitelist → "disabled": true on models.` + (notes.length ? `\n\nNotes:\n• ${notes.join('\n• ')}` : '');
+  if (!confirm(msg)) return;
+  mutate(() => {
+    delete S.config.provider[pid];
+    if (!Object.keys(S.config.provider).length) delete S.config.provider;
+    if (!isObj(S.config.providers)) S.config.providers = {};
+    S.config.providers[pid] = obj;
+    S.meta[pid] = { ...(S.meta[pid] || {}), mode: 'disabled' };
+  });
+}
+
+// ---------------------------------------------------------------- target OpenCode version, V2 -> V1 conversion
+
+// Which OpenCode the file is for. Explicit choice, else inferred: any "providers" entry means 2.x.
+const targetVersion = () => S.settings.target || (Object.keys(v2Map()).length ? 'v2' : Object.keys(v1Map()).length ? 'v1' : 'v2');
+function setTarget(v) { S.settings.target = v; persist(); bump(); }
+
+function v2ModelToV1(mo, notes, where) {
+  if (!isObj(mo)) return { obj: mo, disabled: false };
+  const out = {};
+  let disabled = false;
+  for (const [k, v] of Object.entries(mo)) {
+    if (k === 'modelID') out.id = v;
+    else if (k === 'capabilities' && isObj(v)) {
+      for (const [ck, cv] of Object.entries(v)) {
+        if (ck === 'tools') out.tool_call = cv;
+        else if (ck === 'input' || ck === 'output') (out.modalities ||= {})[ck] = cv;
+        else if (ck === 'reasoning' && typeof cv === 'boolean') out.reasoning = cv;
+        else if (ck === 'reasoning' && isObj(cv) && hasOwn(cv, 'supported')) {
+          out.reasoning = !!cv.supported;
+          if (Object.keys(cv).length > 1) notes.push(`${where}: only capabilities.reasoning.supported kept (V1 has a boolean "reasoning")`);
+        } else notes.push(`${where}: dropped capabilities.${ck}`);
+      }
+    } else if (k === 'disabled') disabled = v === true;
+    else if (k === 'settings' && isObj(v)) out.options = { ...(out.options || {}), ...v };
+    else if (k === 'cost' && isObj(v)) {
+      const { cache, ...rest } = v;
+      out.cost = { ...rest };
+      if (isObj(cache)) {
+        if (cache.read !== undefined) out.cost.cache_read = cache.read;
+        if (cache.write !== undefined) out.cost.cache_write = cache.write;
+      }
+    } else if (k === 'variants' && Array.isArray(v)) {
+      out.variants = {};
+      for (const vv of v) {
+        if (!isObj(vv) || !vv.id) continue;
+        out.variants[vv.id] = { ...(isObj(vv.settings) ? vv.settings : {}) };
+        if (vv.body || vv.headers) notes.push(`${where}: variant "${vv.id}" body/headers dropped`);
+      }
+    } else if (k === 'compatibility' || k === 'body') notes.push(`${where}: dropped "${k}" (not supported by OpenCode 1.x)`);
+    else out[k] = v;
+  }
+  return { obj: out, disabled };
+}
+
+function v2ProviderToV1(p, pid = 'provider') {
+  const notes = [];
+  if (!isObj(p)) return { obj: p, notes };
+  const out = {};
+  const options = () => (out.options ||= {});
+  const disabledIds = [];
+  for (const [k, v] of Object.entries(p)) {
+    if (k === 'package') {
+      out.npm = v === NATIVE_OAI ? '@ai-sdk/openai-compatible' : String(v).replace(/^aisdk:/, '');
+      if (v !== NATIVE_OAI && !/^aisdk:/.test(v)) notes.push(`${pid}: package "${v}" has no known V1 equivalent; kept as npm`);
+    } else if (k === 'settings' && isObj(v)) Object.assign(options(), v);
+    else if (k === 'headers') options().headers = v;
+    else if (k === 'compatibility' && isObj(v)) {
+      for (const [ck, cv] of Object.entries(v)) {
+        if (ck === 'supportsPromptCacheKey') options().setCacheKey = cv;
+        else notes.push(`${pid}: dropped compatibility.${ck} (not supported by OpenCode 1.x)`);
+      }
+    } else if (k === 'body') notes.push(`${pid}: dropped "body" (not supported by OpenCode 1.x)`);
+    else if (k === 'models' && isObj(v)) {
+      out.models = {};
+      for (const [mid, mo] of Object.entries(v)) {
+        const r = v2ModelToV1(mo, notes, `${pid}/${mid}`);
+        if (r.disabled) disabledIds.push(mid);
+        // A built-in model entry that only said "disabled" becomes just a blacklist entry.
+        if (!(r.disabled && !isCustom(p) && isObj(r.obj) && !Object.keys(r.obj).length)) out.models[mid] = r.obj;
+      }
+      if (!Object.keys(out.models).length) delete out.models;
+    } else out[k] = v;
+  }
+  if (disabledIds.length) out.blacklist = disabledIds;
+  return { obj: out, notes };
+}
+
+function convertProviderToV1(pid, ask = true) {
+  if (fmtOf(pid) === 'v1') return;
+  if (hasOwn(v1Map(), pid)) { toast(`"provider" already has an entry named ${pid}`, true); return; }
+  const { obj, notes } = v2ProviderToV1(clone(prov(pid)), pid);
+  const msg = `Convert "${pid}" to the OpenCode 1.x format?\n\nIt moves from "providers" to "provider"; package → npm, settings/headers → options, ` +
+    `"disabled": true → blacklist.` + (notes.length ? `\n\nNotes:\n• ${notes.join('\n• ')}` : '');
+  if (ask && !confirm(msg)) return;
+  mutate(() => {
+    delete S.config.providers[pid];
+    if (!Object.keys(S.config.providers).length) delete S.config.providers;
+    if (!isObj(S.config.provider)) S.config.provider = {};
+    S.config.provider[pid] = obj;
+    S.meta[pid] = { ...(S.meta[pid] || {}), mode: obj.blacklist ? 'blacklist' : inferMode(pid, obj) };
+  });
+}
+
+function convertAll(to) {
+  const ids = Object.keys(to === 'v2' ? v1Map() : v2Map()).filter(pid => !hasOwn(to === 'v2' ? v2Map() : v1Map(), pid));
+  if (!ids.length) return;
+  const notes = ids.flatMap(pid => (to === 'v2' ? v1ProviderToV2 : v2ProviderToV1)(clone(prov(pid)), pid).notes);
+  if (!confirm(`Convert ${ids.length} provider(s) to the ${to === 'v2' ? 'OpenCode 2' : 'OpenCode 1.x'} format: ${ids.join(', ')}?` +
+    (notes.length ? `\n\nNotes:\n• ${notes.join('\n• ')}` : ''))) return;
+  for (const pid of ids) {
+    if (to === 'v2') {
+      const { obj } = v1ProviderToV2(clone(prov(pid)), pid);
+      mutate(() => {
+        delete S.config.provider[pid];
+        if (!Object.keys(S.config.provider).length) delete S.config.provider;
+        if (!isObj(S.config.providers)) S.config.providers = {};
+        S.config.providers[pid] = obj;
+        S.meta[pid] = { ...(S.meta[pid] || {}), mode: 'disabled' };
+      });
+    } else convertProviderToV1(pid, false);
+  }
+}
+
+// Rename a model key, keeping order, its disable state and references to provider/model.
+function renameModelKey(pid, old, nw) {
+  nw = (nw || '').trim();
+  if (!nw || nw === old) return false;
+  if (modelState(pid).known.includes(nw) && !(meta(pid).fetched || []).includes(nw)) { toast(`Model "${nw}" already exists`, true); return false; }
+  const p = prov(pid);
+  if (isObj(p.models) && hasOwn(p.models, old)) {
+    const out = {};
+    for (const k of Object.keys(p.models)) out[k === old ? nw : k] = p.models[k];
+    p.models = out;
+  }
+  const stash = S.stash[pid];
+  if (stash && hasOwn(stash, old)) { stash[nw] = stash[old]; delete stash[old]; }
+  for (const k of ['blacklist', 'whitelist']) if (Array.isArray(p[k])) p[k] = p[k].map(x => x === old ? nw : x);
+  const from = `${pid}/${old}`, to = `${pid}/${nw}`;
+  for (const k of ['model', 'small_model']) if (S.config[k] === from) S.config[k] = to;
+  for (const sect of ['agent', 'agents', 'mode']) {
+    if (isObj(S.config[sect])) for (const a of Object.values(S.config[sect])) if (isObj(a) && a.model === from) a.model = to;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------- OpenCode 1.x cache_control workarounds
+// 1.x attaches cache_control to any model whose id contains "claude" or "anthropic" and has no
+// option to turn it off (https://github.com/anomalyco/opencode/issues/6473). Two workarounds:
+// a plugin that strips the markers from outgoing requests, or gateway-side model aliases.
+
+const jsIdent = s => s.replace(/[^A-Za-z0-9_$]/g, '_');
+
+function buildStripPlugin(pids) {
+  const hooks = pids.map(pid => `export const StripCacheControl_${jsIdent(pid)} = async () => ({
+  auth: {
+    provider: ${JSON.stringify(pid)},
+    methods: [{ type: "api", label: "API key" }],
+    async loader() {
+      return { fetch: stripCacheControlFetch }
+    },
+  },
+})`).join('\n\n');
+  return `// OpenCode 1.x plugin: removes Anthropic prompt-caching markers ("cache_control" / "cacheControl")
+// from requests sent to: ${pids.join(', ')}.
+// OpenCode 1.x adds them to every model whose id contains "claude" or "anthropic", and some
+// OpenAI-compatible gateways reject them. Community workaround from
+// https://github.com/anomalyco/opencode/issues/6473
+//
+// Install: save as ~/.config/opencode/plugin/strip-cache-control.js (all projects)
+//          or .opencode/plugin/strip-cache-control.js (one project).
+// The loader only runs when OpenCode has stored credentials for the provider, so once per provider run:
+//   opencode auth login  ->  Other  ->  provider id  ->  API key
+//
+// Generated by OpenCode Config Editor.
+
+const STRIP_KEYS = new Set(["cache_control", "cacheControl"])
+
+function strip(value) {
+  if (Array.isArray(value)) return value.map(strip)
+  if (value && typeof value === "object") {
+    const out = {}
+    for (const [key, v] of Object.entries(value)) if (!STRIP_KEYS.has(key)) out[key] = strip(v)
+    return out
+  }
+  return value
+}
+
+async function stripCacheControlFetch(input, init) {
+  if (init && typeof init.body === "string") {
+    try {
+      init = { ...init, body: JSON.stringify(strip(JSON.parse(init.body))) }
+    } catch {
+      // not JSON: send unchanged
+    }
+  }
+  return fetch(input, init)
+}
+
+${hooks}
+`;
+}
+
+// Suggested alias: the model id without the words that trigger 1.x caching.
+const suggestAlias = id => id.replace(/anthropic[/:.]?/gi, '').replace(/claude/gi, 'cld').replace(/^[-_/.]+/, '') || id + '-alias';
+
+// Rename each model to its gateway alias; the old id becomes its display name when it has none.
+function applyAliases(pid, aliases) {
+  mutate(() => {
+    for (const [old, alias] of Object.entries(aliases)) {
+      if (!renameModelKey(pid, old, alias)) continue;
+      const moved = modelObj(pid, alias.trim(), false);
+      if (isObj(moved)) {
+        if (moved.name === undefined) moved.name = old;
+        delete moved[P(pid).modelId[0]]; // the alias is what gets sent now
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------- Anthropic-compatible API (OpenCode 1.x)
+// Gateways that also expose Anthropic's Messages API (POST <baseURL>/messages) accept cache_control
+// natively when the models are served through @ai-sdk/anthropic instead of the OpenAI-compatible SDK.
+
+const ANTHROPIC_NPM = '@ai-sdk/anthropic';
+
+// opts: { mode: 'split' | 'switch', newId, name, baseURL, bearer, models: [ids], original: 'remove' | 'disable' }
+function applyAnthropicCompat(pid, opts) {
+  mutate(() => {
+    const src = prov(pid);
+    const srcOpts = isObj(src.options) ? src.options : {};
+    const bearerHeader = () => 'Bearer ' + (typeof srcOpts.apiKey === 'string' ? srcOpts.apiKey : '{env:API_KEY}');
+    if (opts.mode === 'switch') {
+      src.npm = ANTHROPIC_NPM;
+      setIn(src, ['options', 'baseURL'], opts.baseURL || undefined);
+      if (opts.bearer) setIn(src, ['options', 'headers', 'Authorization'], bearerHeader());
+      return;
+    }
+    const target = { npm: ANTHROPIC_NPM, name: opts.name || opts.newId, options: {} };
+    if (opts.baseURL) target.options.baseURL = opts.baseURL;
+    if (srcOpts.apiKey !== undefined) target.options.apiKey = srcOpts.apiKey;
+    if (isObj(srcOpts.headers)) target.options.headers = clone(srcOpts.headers);
+    if (opts.bearer) (target.options.headers ||= {}).Authorization = bearerHeader();
+    target.models = {};
+    for (const id of opts.models) target.models[id] = clone(modelObj(pid, id, false)) ?? {};
+    if (!Object.keys(target.models).length) delete target.models;
+
+    // Insert the new provider right after the source one.
+    const out = {};
+    for (const k of Object.keys(S.config.provider)) {
+      out[k] = S.config.provider[k];
+      if (k === pid) out[opts.newId] = target;
+    }
+    S.config.provider = out;
+    S.meta[opts.newId] = { mode: 'omit' };
+
+    if (opts.original === 'disable') {
+      const E = new Set(modelState(pid).enabled);
+      opts.models.forEach(id => E.delete(id));
+      applyEnabled(pid, E, meta(pid).mode);
+    } else {
+      for (const id of opts.models) {
+        if (isObj(src.models)) delete src.models[id];
+        if (S.stash[pid]) delete S.stash[pid][id];
+        if (Array.isArray(src.blacklist)) src.blacklist = src.blacklist.filter(x => x !== id);
+        if (Array.isArray(src.whitelist)) src.whitelist = src.whitelist.filter(x => x !== id);
+      }
+      if (isObj(src.models) && !Object.keys(src.models).length) delete src.models;
+      if (Array.isArray(src.blacklist) && !src.blacklist.length) delete src.blacklist;
+    }
+
+    // Point references at the moved models.
+    const fix = v => {
+      if (typeof v !== 'string' || !v.startsWith(pid + '/')) return v;
+      const mid = v.slice(pid.length + 1);
+      return opts.models.includes(mid) ? `${opts.newId}/${mid}` : v;
+    };
+    for (const k of ['model', 'small_model']) if (hasOwn(S.config, k)) S.config[k] = fix(S.config[k]);
+    for (const sect of ['agent', 'mode']) {
+      if (isObj(S.config[sect])) for (const a of Object.values(S.config[sect])) if (isObj(a) && a.model) a.model = fix(a.model);
+    }
+    S.selected = opts.newId;
+  });
+}
+
+// ---------------------------------------------------------------- prompt caching (cache_control)
+
+const CACHE_KEYS = ['cache_control', 'cacheControl'];
+
+// Paths of every explicit cache_control / cacheControl key inside a provider entry.
+function findCacheKeys(o, path = [], out = []) {
+  if (Array.isArray(o)) o.forEach((x, i) => findCacheKeys(x, [...path, i], out));
+  else if (isObj(o)) for (const [k, v] of Object.entries(o)) {
+    if (CACHE_KEYS.includes(k)) out.push([...path, k]);
+    else findCacheKeys(v, [...path, k], out);
+  }
+  return out;
+}
+
+function cacheReport(pid) {
+  const p = prov(pid) || {};
+  const models = isObj(p.models) ? p.models : {};
+  const providerFormat = p.compatibility?.cacheFormat;
+  const modelFormats = Object.entries(models)
+    .filter(([, mo]) => isObj(mo) && mo.compatibility?.cacheFormat)
+    .map(([id, mo]) => [id, mo.compatibility.cacheFormat]);
+  const st = modelState(pid);
+  const claude = st.known.filter(id => isClaude(id, modelObj(pid, id, false)));
+  return { providerFormat, modelFormats, explicit: findCacheKeys(p), claude, enabledClaude: claude.filter(id => st.enabled.has(id)) };
+}
+
+// Stop OpenCode from sending cache_control: unset every cacheFormat and delete explicit markers.
+function stripCacheControl(pid) {
+  mutate(() => {
+    const p = prov(pid);
+    const unsetFormat = o => { if (isObj(o?.compatibility)) setIn(o, ['compatibility', 'cacheFormat'], undefined); };
+    // Delete each marker, then prune objects it left empty (but never a model entry itself).
+    const strip = (root, isModel) => {
+      for (const path of findCacheKeys(root).reverse()) {
+        const parentOf = n => getIn(root, path.slice(0, n));
+        delete parentOf(path.length - 1)[path[path.length - 1]];
+        const floor = isModel ? 0 : path[0] === 'models' ? 2 : 0;
+        for (let n = path.length - 1; n > floor; n--) {
+          const node = parentOf(n);
+          if (isObj(node) && !Object.keys(node).length) delete parentOf(n - 1)[path[n - 1]]; else break;
+        }
+      }
+    };
+    unsetFormat(p);
+    for (const mo of Object.values(isObj(p.models) ? p.models : {})) unsetFormat(mo);
+    for (const mo of Object.values(S.stash[pid] || {})) unsetFormat(mo);
+    strip(p, false);
+    for (const mo of Object.values(S.stash[pid] || {})) strip(mo, true);
+  });
+}
+
+// For gateways that accept Anthropic-style markers: enable caching on Claude models only.
+function setClaudeCacheFormat(pid, format) {
+  mutate(() => {
+    for (const id of cacheReport(pid).enabledClaude) setIn(modelObj(pid, id, true), ['compatibility', 'cacheFormat'], format);
+  });
+}
+
+// ---------------------------------------------------------------- /models fetching
+
+function defaultFetchUrl(pid) {
+  const p = prov(pid) || {};
+  const url = getIn(p, P(pid).baseURL) ?? (fmtOf(pid) === 'v1' ? p.api : undefined);
+  const base = (typeof url === 'string' && !isSecretRef(url) && url) || KNOWN_BASE[pid];
+  return base ? base.replace(/\/+$/, '') + '/models' : '';
+}
+function defaultAuth(pid) {
+  const p = prov(pid) || {};
+  if (pid === 'anthropic' || /@ai-sdk\/anthropic$/.test(pkgOf(p))) return 'anthropic';
+  if (pid === 'google' || /@ai-sdk\/google$/.test(pkgOf(p))) return 'google';
+  return 'bearer';
+}
+function fetchKey(pid) {
+  if (sessionKeys[pid]) return sessionKeys[pid];
+  const k = getIn(prov(pid), P(pid).apiKey);
+  return typeof k === 'string' && !isSecretRef(k) ? k : '';
+}
+
+function parseModelsResponse(json) {
+  const arr = Array.isArray(json) ? json
+    : Array.isArray(json?.data) ? json.data
+    : Array.isArray(json?.models) ? json.models
+    : Array.isArray(json?.result) ? json.result : null;
+  if (!arr) throw new Error('Could not find a model list (expected "data" or "models" array)');
+  const out = [];
+  for (const it of arr) {
+    if (typeof it === 'string') { out.push({ id: it }); continue; }
+    if (!isObj(it)) continue;
+    const idFromName = it.id == null;
+    let id = it.id ?? it.name ?? it.model;
+    if (typeof id !== 'string' || !id) continue;
+    id = id.replace(/^models\//, '');
+    const name = it.display_name ?? it.displayName ?? (!idFromName && typeof it.name === 'string' && it.name !== id ? it.name : undefined);
+    const context = it.context_length ?? it.context_window ?? it.inputTokenLimit ?? it.max_context_length
+      ?? it.max_model_len ?? it.top_provider?.context_length ?? it.max_input_tokens;
+    const output = it.top_provider?.max_completion_tokens ?? it.outputTokenLimit ?? it.max_output_tokens ?? it.max_completion_tokens;
+    out.push({
+      id, name,
+      context: typeof context === 'number' ? context : undefined,
+      output: typeof output === 'number' ? output : undefined,
+      inMods: normModalities(it.architecture?.input_modalities ?? it.modalities?.input ?? it.input_modalities),
+      outMods: normModalities(it.architecture?.output_modalities ?? it.modalities?.output ?? it.output_modalities),
+    });
+  }
+  return out;
+}
+
+// Modality lists from /models responses (OpenRouter "file" means document input), known values only.
+function normModalities(list) {
+  if (!Array.isArray(list)) return undefined;
+  const out = uniq(list.map(x => String(x).toLowerCase()).map(x => x === 'file' ? 'pdf' : x).filter(x => MODALITIES.includes(x)));
+  return out.length ? sortModalities(out) : undefined;
+}
+
+function fillMeta(obj, it, fmt = 'v1') {
+  if (it.name && obj.name === undefined) obj.name = it.name;
+  if (it.context && it.output && obj.limit === undefined) obj.limit = { context: it.context, output: it.output };
+  const paths = MOD_PATHS[fmt];
+  if ((it.inMods || it.outMods) && getIn(obj, paths.input) === undefined && getIn(obj, paths.output) === undefined) {
+    const def = modalityDefaults(fmt);
+    if (fmt === 'v1') {
+      // V1 needs both lists together.
+      setIn(obj, paths.input, it.inMods || def.input);
+      setIn(obj, paths.output, it.outMods || def.output);
+    } else {
+      if (it.inMods) setIn(obj, paths.input, it.inMods);
+      if (it.outMods) setIn(obj, paths.output, it.outMods);
+    }
+  }
+  return obj;
+}
+
+// Escape text for use inside a double-quoted shell string.
+const dqEscape = s => String(s).replace(/[\\"`$]/g, '\\$&');
+
+// Convert a config string to shell syntax: {env:VAR} -> ${VAR}, {file:path} -> $(cat path), rest escaped.
+function toShell(v) {
+  let out = '', last = 0;
+  for (const m of String(v).matchAll(/\{(env|file):([^}]+)\}/g)) {
+    out += dqEscape(v.slice(last, m.index));
+    out += m[1] === 'env' ? '${' + m[2].trim() + '}' : '$(cat ' + m[2].trim() + ')';
+    last = m.index + m[0].length;
+  }
+  return out + dqEscape(v.slice(last));
+}
+
+// Everything needed to call the models endpoint. Header values come in two forms:
+// `real` (usable by fetch(), null if it depends on an env/file reference) and `shell` (for curl).
+// The fetch-time API key and its shell form for curl ({env:X} -> ${X}; otherwise ${API_KEY}).
+function keyInfo(pid) {
+  const cfgKey = getIn(prov(pid), P(pid).apiKey);
+  return {
+    realKey: fetchKey(pid),
+    shellKey: !sessionKeys[pid] && isSecretRef(cfgKey) ? toShell(cfgKey) : '${API_KEY}',
+  };
+}
+
+// The provider's own headers. Values that reference {env:}/{file:} can't be sent from the browser.
+function providerHeaders(pid) {
+  const extra = getIn(prov(pid), P(pid).headers);
+  const out = [];
+  if (isObj(extra)) for (const [k, v] of Object.entries(extra)) {
+    if (typeof v === 'string') out.push({ name: k, real: isSecretRef(v) ? null : v, shell: toShell(v) });
+  }
+  return out;
+}
+
+function proxied(url) {
+  const proxy = S.settings.corsProxy.trim();
+  return !proxy ? url : proxy.includes('{url}') ? proxy.replace('{url}', encodeURIComponent(url)) : proxy + url;
+}
+
+// Everything needed to call the models endpoint. Header values come in two forms:
+// `real` (usable by fetch(), null if it depends on an env/file reference) and `shell` (for curl).
+function buildRequest(pid) {
+  const m = meta(pid);
+  const url = m.fetchUrl || defaultFetchUrl(pid);
+  if (!url) throw new Error('No URL. Set the provider base URL or a fetch URL.');
+  const auth = m.auth || defaultAuth(pid);
+  const { realKey, shellKey } = keyInfo(pid);
+  const headers = [{ name: 'Accept', real: 'application/json', shell: 'application/json' }, ...providerHeaders(pid)];
+  if (auth === 'anthropic') {
+    headers.push({ name: 'anthropic-version', real: '2023-06-01', shell: '2023-06-01' });
+    headers.push({ name: 'anthropic-dangerous-direct-browser-access', real: 'true', shell: 'true', browserOnly: true });
+  }
+  if (auth === 'bearer') headers.push({ name: 'Authorization', real: realKey ? 'Bearer ' + realKey : null, shell: 'Bearer ' + shellKey, key: true });
+  if (auth === 'anthropic') headers.push({ name: 'x-api-key', real: realKey || null, shell: shellKey, key: true });
+  let u;
+  try { u = new URL(url); } catch { throw new Error(`Invalid URL: ${url}`); }
+  if (auth === 'anthropic' && !u.searchParams.has('limit')) u.searchParams.set('limit', '1000');
+  if (auth === 'google' && !u.searchParams.has('pageSize')) u.searchParams.set('pageSize', '1000');
+  return { url: u, auth, headers, realKey, shellKey };
+}
+
+// Render a request spec { url, headers, body?, keyInQuery?, needsKey, realKey, shellKey } as curl.
+// Unless includeKey is set, the key is referenced via an env var instead of being inlined.
+function renderCurl(spec, includeKey) {
+  const inline = includeKey && !!spec.realKey;
+  const keyShell = inline ? dqEscape(spec.realKey) : spec.shellKey;
+  let url = dqEscape(spec.url);
+  if (spec.keyInQuery) url += (spec.url.includes('?') ? '&' : '?') + 'key=' + keyShell;
+  const lines = [`curl -sS "${url}"`];
+  for (const h of spec.headers) {
+    if (h.browserOnly) continue;
+    const val = h.key ? h.shell.replace(spec.shellKey, () => keyShell) : h.shell;
+    lines.push(`-H "${dqEscape(h.name)}: ${val}"`);
+  }
+  if (spec.body !== undefined) lines.push(`--data-raw '${JSON.stringify(spec.body).replace(/'/g, `'\\''`)}'`);
+  let cmd = lines.join(' \\\n  ');
+  if (spec.needsKey && !inline && spec.shellKey === '${API_KEY}') cmd = `# First run: export API_KEY='your-key'\n` + cmd;
+  return cmd;
+}
+
+// A curl command equivalent to the browser request (curl isn't subject to CORS).
+function buildCurl(pid, includeKey = false) {
+  const r = buildRequest(pid);
+  return renderCurl({ ...r, url: r.url.href, keyInQuery: r.auth === 'google', needsKey: r.auth !== 'none' }, includeKey);
+}
+
+// ---------------------------------------------------------------- Anthropic Messages API test requests
+
+const TEST_SYSTEM = 'You are a connectivity test. Reply with the single word OK.';
+
+// The id sent to the API for a model: its id/modelID override, else the config key.
+const apiModelId = (pid, id) => getIn(modelObj(pid, id, false), P(pid).modelId) || id;
+
+// A minimal POST <baseURL>/messages, optionally with a cache_control marker on the system prompt so
+// the test also shows whether the endpoint accepts the markers OpenCode sends.
+function anthropicTestRequest(pid, { baseURL, bearer, model, cache }) {
+  const { realKey, shellKey } = keyInfo(pid);
+  const base = (baseURL || 'https://api.anthropic.com/v1').replace(/\/+$/, '');
+  const own = providerHeaders(pid).filter(h => !(bearer && h.name.toLowerCase() === 'authorization'));
+  const headers = [
+    { name: 'Content-Type', real: 'application/json', shell: 'application/json' },
+    { name: 'anthropic-version', real: '2023-06-01', shell: '2023-06-01' },
+    ...own,
+    { name: 'anthropic-dangerous-direct-browser-access', real: 'true', shell: 'true', browserOnly: true },
+    { name: 'x-api-key', real: realKey || null, shell: shellKey, key: true },
+  ];
+  if (bearer) headers.push({ name: 'Authorization', real: realKey ? 'Bearer ' + realKey : null, shell: 'Bearer ' + shellKey, key: true });
+  const body = {
+    model,
+    max_tokens: 32,
+    system: cache ? [{ type: 'text', text: TEST_SYSTEM, cache_control: { type: 'ephemeral' } }] : TEST_SYSTEM,
+    messages: [{ role: 'user', content: 'Reply with OK.' }],
+  };
+  return { url: base + '/messages', headers, body, realKey, shellKey, needsKey: true };
+}
+
+async function runTestRequest(spec) {
+  const missing = spec.headers.filter(h => h.real == null && !h.browserOnly);
+  if (missing.some(h => h.key)) return { ok: false, message: 'No API key available in the browser. Enter one below (kept in memory only), or use the curl command.' };
+  if (missing.length) return { ok: false, message: `Header(s) ${missing.map(h => h.name).join(', ')} use {env:}/{file:} references, which the browser can't resolve. Use the curl command.` };
+  const headers = {};
+  for (const h of spec.headers) headers[h.name] = h.real;
+  const t0 = performance.now();
+  let res;
+  try { res = await fetch(proxied(spec.url), { method: 'POST', headers, body: JSON.stringify(spec.body) }); }
+  catch (e) {
+    return { ok: false, cors: true, message: `Request failed (${e.message}). Usually CORS: the gateway doesn't allow browser requests. Run the curl command instead.` };
+  }
+  const ms = Math.round(performance.now() - t0);
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { /* not JSON */ }
+  if (!res.ok) return { ok: false, status: res.status, ms, message: json?.error?.message || json?.message || text.slice(0, 300) };
+  if (!json || !Array.isArray(json.content)) return { ok: false, status: res.status, ms, message: 'Not an Anthropic Messages response: ' + text.slice(0, 200) };
+  const reply = json.content.filter(c => c.type === 'text').map(c => c.text).join('').trim();
+  return { ok: true, status: res.status, ms, reply, model: json.model, usage: json.usage };
+}
+
+async function fetchModels(pid) {
+  const r = buildRequest(pid);
+  const key = r.realKey, auth = r.auth;
+  const headers = {};
+  for (const h of r.headers) if (h.real != null) headers[h.name] = h.real;
+  const items = [];
+  let page = r.url;
+  for (let i = 0; i < 20 && page; i++) {
+    const u = new URL(page);
+    if (auth === 'google' && key) u.searchParams.set('key', key);
+    let res;
+    try { res = await fetch(proxied(u.href), { headers }); }
+    catch (e) {
+      throw new Error(`Request failed (${e.message}). This is usually CORS: the server does not allow browser requests. ` +
+        `Use "curl / paste response…" to run the request in a terminal and paste the result, or configure a CORS proxy in General settings.`);
+    }
+    const body = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${body.slice(0, 300)}`);
+    let json;
+    try { json = JSON.parse(body); } catch { throw new Error('Response is not JSON: ' + body.slice(0, 200)); }
+    items.push(...parseModelsResponse(json));
+    page = null;
+    if (json.has_more && json.last_id) { page = new URL(u); page.searchParams.set('after_id', json.last_id); }
+    else if (json.nextPageToken) { page = new URL(u); page.searchParams.set('pageToken', json.nextPageToken); }
+    if (page) page.searchParams.delete('key');
+  }
+  return items;
+}
+
+function mergeFetched(pid, items, { enableNew, addMeta }) {
+  const seen = new Set();
+  items = items.filter(it => !seen.has(it.id) && seen.add(it.id));
+  let newCount = 0;
+  mutate(() => {
+    const st = modelState(pid), m = meta(pid);
+    const stash = S.stash[pid] ||= {};
+    const known = new Set(st.known);
+    const newIds = [];
+    for (const it of items) {
+      if (!known.has(it.id)) {
+        newIds.push(it.id);
+        stash[it.id] = addMeta ? fillMeta({}, it, fmtOf(pid)) : {};
+      } else if (addMeta) {
+        const obj = modelObj(pid, it.id, false);
+        if (isObj(obj)) fillMeta(obj, it, fmtOf(pid));
+        else if (!hasOwn(st.models, it.id)) {
+          const filled = fillMeta({}, it, fmtOf(pid));
+          if (Object.keys(filled).length) stash[it.id] = filled;
+        }
+      }
+    }
+    m.fetched = items.map(i => i.id);
+    m.fetchedAt = Date.now();
+    m.newIds = newIds;
+    newCount = newIds.length;
+    const E = new Set(modelState(pid).enabled);
+    if (enableNew) newIds.forEach(id => E.add(id));
+    applyEnabled(pid, E, m.mode);
+  });
+  return newCount;
+}
+
+// ---------------------------------------------------------------- output generation
+
+function diff(a, b, path, out) {
+  if (isObj(a) && isObj(b)) {
+    const sub = [];
+    for (const k of Object.keys(a)) if (!hasOwn(b, k)) sub.push({ path: [...path, k], value: undefined, kind: 'removed' });
+    for (const k of Object.keys(b)) {
+      if (!hasOwn(a, k)) sub.push({ path: [...path, k], value: b[k], kind: 'added' });
+      else diff(a[k], b[k], [...path, k], sub);
+    }
+    // Many edits inside one object: replace it wholesale (much faster than hundreds of text edits).
+    if (sub.length > 60 && path.length > 0) out.push({ path, value: b, kind: 'changed' });
+    else out.push(...sub);
+  } else if (!deepEqual(a, b)) out.push({ path, value: b, kind: 'changed' });
+}
+
+function detectFormatting(text) {
+  const m = text.match(/\n([ \t]+)["}\]]/);
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  if (m && m[1][0] === '\t') return { insertSpaces: false, tabSize: 1, eol };
+  return { insertSpaces: true, tabSize: m ? m[1].length : 2, eol };
+}
+
+function generateOutput() {
+  if (S.origText == null) return { text: JSON.stringify(S.config, null, 2) + '\n', changes: null };
+  const changes = [];
+  diff(S.origConfig, S.config, [], changes);
+  let text = S.origText;
+  try {
+    const formattingOptions = detectFormatting(text);
+    for (const c of changes) text = jsonc.applyEdits(text, jsonc.modify(text, c.path, c.value, { formattingOptions }));
+  } catch (e) {
+    console.error('Edit application failed, falling back to full serialization', e);
+    text = JSON.stringify(S.config, null, 2) + '\n';
+  }
+  return { text, changes };
+}
+
+function computeWarnings() {
+  const w = [];
+  for (const [pid, p] of Object.entries(providers())) {
+    if (!isObj(p)) continue;
+    const fmt = fmtOf(pid);
+    if (/openai-compatible$/.test(pkgOf(p)) && !getIn(p, P(pid).baseURL)) w.push(`${pid}: openai-compatible provider has no ${P(pid).baseURL.join('.')}`);
+    if (hasOwn(v1Map(), pid) && hasOwn(v2Map(), pid)) w.push(`${pid}: defined in both "provider" and "providers"; the "providers" entry wins`);
+    const foreign = fmt === 'v2' ? ['npm', 'options', 'whitelist', 'blacklist', 'api'] : ['package', 'settings', 'compatibility', 'body'];
+    const mixed = foreign.filter(k => hasOwn(p, k));
+    if (mixed.length) w.push(`${pid}: ${fmt === 'v2' ? 'V1' : 'V2'} keys (${mixed.join(', ')}) in a ${fmt === 'v2' ? '"providers" (V2)' : '"provider" (V1)'} entry; OpenCode doesn't support mixing formats inside one provider`);
+    const target = targetVersion();
+    if (target === 'v1' && fmt === 'v2') w.push(`${pid}: "providers" entries are OpenCode 2 only; 1.x won't load it — use "Convert to V1"`);
+    if (target === 'v2' && fmt === 'v1' && (Array.isArray(p.whitelist) || Array.isArray(p.blacklist)))
+      w.push(`${pid}: OpenCode 2 ignores whitelist/blacklist, so disabled models will show up — use "Convert to V2"`);
+    if (target === 'v1' && fmt === 'v1' && /openai-compatible$/.test(pkgOf(p))) {
+      const n = cacheReport(pid).enabledClaude.length;
+      if (n) w.push(`${pid}: OpenCode 1.x adds cache_control for ${n} Claude model(s); if the gateway rejects it, see the provider's prompt caching section`);
+    }
+    if (fmt === 'v2') {
+      const rep = cacheReport(pid);
+      if (rep.claude.length && (rep.providerFormat || rep.modelFormats.length || rep.explicit.length) && /openai-compatible$/.test(pkgOf(p)))
+        w.push(`${pid}: sends cache_control markers; if the gateway rejects them, use "Remove all cache markers" in the provider's prompt caching section`);
+    }
+    if (isObj(p.models)) for (const [mid, mo] of Object.entries(p.models)) {
+      if (isObj(mo?.limit) && (typeof mo.limit.context !== 'number' || typeof mo.limit.output !== 'number'))
+        w.push(`${pid}/${mid}: "limit" needs both context and output`);
+    }
+  }
+  for (const [k, v] of modelRefs()) {
+    if (typeof v !== 'string' || !v) continue;
+    const i = v.indexOf('/');
+    if (i < 0) { w.push(`${k}: should be "provider/model"`); continue; }
+    const pid = v.slice(0, i), mid = v.slice(i + 1);
+    if (prov(pid)) {
+      const st = modelState(pid);
+      if (st.known.includes(mid) && !st.enabled.has(mid)) w.push(`${k}: points to disabled model ${v}`);
+    }
+    const why = providerBlocked(pid);
+    if (why) w.push(`${k}: provider "${pid}" is ${why}`);
+  }
+  return w;
+}
+
+// Every [label, "provider/model"] reference: model, small_model and per-agent models.
+function modelRefs() {
+  const refs = [['model', S.config.model], ['small_model', S.config.small_model]];
+  for (const sect of ['agent', 'agents', 'mode']) {
+    if (isObj(S.config[sect])) for (const [name, a] of Object.entries(S.config[sect])) {
+      if (isObj(a) && a.model !== undefined) refs.push([`${sect}.${name}.model`, a.model]);
+    }
+  }
+  return refs;
+}
+
+// Why a provider won't load (disabled_providers, or left out of enabled_providers), or null.
+function providerBlocked(pid) {
+  if ((S.config.disabled_providers || []).includes(pid)) return 'disabled (disabled_providers)';
+  if (Array.isArray(S.config.enabled_providers) && !S.config.enabled_providers.includes(pid)) return 'not in enabled_providers';
+  return null;
+}
+
+// ---------------------------------------------------------------- import / export
+
+function importText(text, fileName) {
+  const cfg = parseJsonc(text);
+  if (!isObj(cfg)) throw new Error('The config root must be a JSON object');
+  S.origText = text;
+  S.origConfig = cfg;
+  S.config = clone(cfg);
+  S.fileName = fileName || 'opencode.json';
+  S.stash = {}; S.meta = {};
+  S.selected = Object.keys(providers())[0] || '__general';
+  history.length = 0; future.length = 0; lastKey = null;
+  persist(); bump();
+  toast(`Imported ${S.fileName}`);
+}
+
+async function importFile(file) {
+  try { importText(await file.text(), file.name); }
+  catch (e) { toast(`Import failed: ${e.message}`, true); }
+}
+
+function newConfig() {
+  if (!confirm('Start a new empty config? Unsaved changes will be lost (undo history is cleared).')) return;
+  S.origText = null; S.origConfig = null; S.config = { $schema: SCHEMA_URL };
+  S.fileName = 'opencode.json'; S.stash = {}; S.meta = {}; S.selected = '__general';
+  history.length = 0; future.length = 0;
+  persist(); bump();
+}
+
+function download(text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = S.fileName || 'opencode.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copied to clipboard'); }
+  catch { toast('Clipboard not available', true); }
+}
+
+// ---------------------------------------------------------------- small components
+
+function Field({ label, hint, children, wide }) {
+  return html`<label class="field" style=${wide ? 'grid-column: 1 / -1' : ''}>
+    <span>${label}</span>${children}${hint && html`<small>${hint}</small>`}</label>`;
+}
+
+function TextField({ value, onChange, placeholder, mono, list, type = 'text' }) {
+  return html`<input type=${type} class=${mono ? 'mono' : ''} list=${list} value=${value ?? ''} placeholder=${placeholder || ''}
+    spellcheck="false" autocomplete="off" onInput=${e => onChange(e.target.value === '' ? undefined : e.target.value)} />`;
+}
+
+function SecretField({ value, onChange, placeholder }) {
+  const [show, setShow] = useState(false);
+  return html`<div class="pwd">
+    <${TextField} type=${show || isSecretRef(value) ? 'text' : 'password'} value=${value} onChange=${onChange} placeholder=${placeholder} mono />
+    <button class="small" type="button" onClick=${() => setShow(!show)}>${show ? 'Hide' : 'Show'}</button></div>`;
+}
+
+function NumField({ value, onChange, placeholder }) {
+  return html`<input type="number" min="0" value=${value ?? ''} placeholder=${placeholder || ''}
+    onInput=${e => onChange(e.target.value === '' ? undefined : Number(e.target.value))} />`;
+}
+
+function TriBool({ value, onChange }) {
+  return html`<select value=${value === undefined ? '' : String(value)}
+    onChange=${e => onChange(e.target.value === '' ? undefined : e.target.value === 'true')}>
+    <option value="">— unset —</option><option value="true">true</option><option value="false">false</option></select>`;
+}
+
+// Input that only commits on blur / Enter (used for renames and adding items).
+function CommitInput({ value = '', onCommit, placeholder, mono, clearOnCommit }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  const commit = () => { if (text !== value) onCommit(text); if (clearOnCommit) setText(''); };
+  return html`<input type="text" class=${mono ? 'mono' : ''} value=${text} placeholder=${placeholder || ''} spellcheck="false"
+    onInput=${e => setText(e.target.value)} onBlur=${() => !clearOnCommit && commit()}
+    onKeyDown=${e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setText(value); }} />`;
+}
+
+function JsonEditor({ value, onApply, rows = 8, requireObject }) {
+  const str = value === undefined ? '' : JSON.stringify(value, null, 2);
+  const [text, setText] = useState(str);
+  const [dirty, setDirty] = useState(false);
+  const [err, setErr] = useState(null);
+  useEffect(() => { if (!dirty) setText(str); }, [str]);
+  const apply = () => {
+    try {
+      const t = text.trim();
+      const v = t === '' ? undefined : parseJsonc(t);
+      if (requireObject && v !== undefined && !isObj(v)) throw new Error('Value must be a JSON object');
+      onApply(v); setDirty(false); setErr(null);
+    } catch (e) { setErr(e.message); }
+  };
+  return html`<div class="json-editor">
+    <textarea rows=${rows} value=${text} spellcheck="false"
+      onInput=${e => { setText(e.target.value); setDirty(true); setErr(null); }}
+      onKeyDown=${e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) apply(); }} />
+    <div class="row">${err ? html`<span class="err">${err}</span>` : dirty && html`<span class="muted">Unapplied changes (Ctrl+Enter to apply)</span>`}
+      <span class="grow" />
+      <button class="small" disabled=${!dirty} onClick=${() => { setText(str); setDirty(false); setErr(null); }}>Revert</button>
+      <button class="small primary" disabled=${!dirty} onClick=${apply}>Apply</button></div></div>`;
+}
+
+function Modal({ title, children, onClose }) {
+  return html`<div class="modal-bg" onMouseDown=${e => e.target === e.currentTarget && onClose()}>
+    <div class="modal"><h3>${title}</h3>${children}</div></div>`;
+}
+
+// ---------------------------------------------------------------- modals
+
+function ImportModal() {
+  const [text, setText] = useState('');
+  const [err, setErr] = useState(null);
+  const fileRef = useRef();
+  const close = () => setUI({ modal: null });
+  return html`<${Modal} title="Import existing config" onClose=${close}>
+    <p class="note">Load your <span class="mono">opencode.json</span> / <span class="mono">opencode.jsonc</span>
+      (global: <span class="mono">~/.config/opencode/</span>, or project root). Comments, formatting and every
+      option this tool doesn't know about are preserved — only the parts you edit are rewritten.
+      You can also drag & drop a file anywhere on the page.</p>
+    <div class="row">
+      <button class="primary" onClick=${() => fileRef.current.click()}>Choose file…</button>
+      <input type="file" ref=${fileRef} accept=".json,.jsonc,application/json" style="display:none"
+        onChange=${e => { const f = e.target.files[0]; if (f) { importFile(f); close(); } }} />
+      <span class="muted">or paste below</span>
+    </div>
+    <div class="row"><textarea rows="14" placeholder='{ "$schema": "https://opencode.ai/config.json", ... }'
+      value=${text} onInput=${e => { setText(e.target.value); setErr(null); }} spellcheck="false" /></div>
+    ${err && html`<div class="err">${err}</div>`}
+    <div class="actions"><button onClick=${close}>Cancel</button>
+      <button class="primary" disabled=${!text.trim()} onClick=${() => {
+        try { importText(text, 'opencode.json'); close(); } catch (e) { setErr(e.message); }
+      }}>Import pasted config</button></div><//>`;
+}
+
+function AddProviderModal() {
+  const [tpl, setTpl] = useState(TEMPLATES[0]);
+  const [id, setId] = useState(TEMPLATES[0].id);
+  const [format, setFormat] = useState(targetVersion());
+  const close = () => setUI({ modal: null });
+  const exists = hasOwn(providers(), id.trim());
+  return html`<${Modal} title="Add provider" onClose=${close}>
+    <div class="tpls">${TEMPLATES.map(t => html`
+      <button class=${'tpl' + (t === tpl ? ' active' : '')} onClick=${() => { setTpl(t); setId(t.id); }}>
+        ${t.label}<small>${t.desc}</small></button>`)}</div>
+    <${Field} label="Provider ID" hint=${tpl.builtin
+      ? 'Built-in providers use their catalog id. Models come from models.dev; you can still override or disable them here.'
+      : 'Used as the prefix when selecting models, e.g. "' + (id || 'id') + '/model-name".'}>
+      <input type="text" class="mono" value=${id} onInput=${e => setId(e.target.value)} autofocus /><//>
+    ${exists && html`<div class="err">A provider with this ID already exists.</div>`}
+    <div style="margin-top:10px"><${Field} label="Config format">
+      <select value=${format} onChange=${e => setFormat(e.target.value)}>
+        <option value="v2">OpenCode 2 native ("providers", package/settings/compatibility)</option>
+        <option value="v1">V1 ("provider", npm/options) — for OpenCode 1.x</option>
+      </select><//></div>
+    ${format !== targetVersion() && html`<div class="note" style="color:var(--warn)">The file targets OpenCode ${targetVersion() === 'v1' ? '1.x' : '2.x'};
+      ${format === 'v2' ? 'OpenCode 1.x does not read "providers" entries.' : 'OpenCode 2 reads V1 entries but ignores their whitelist/blacklist.'}</div>`}
+    <div class="actions"><button onClick=${close}>Cancel</button>
+      <button class="primary" disabled=${!id.trim() || exists} onClick=${() => { addProvider(id.trim(), tpl, format); close(); }}>Add provider</button></div><//>`;
+}
+
+function copyCurl(pid, includeKey = false) {
+  try { copy(buildCurl(pid, includeKey)); } catch (e) { toast(e.message, true); }
+}
+
+function CurlBlock({ pid }) {
+  const [includeKey, setIncludeKey] = useState(false);
+  let cmd, err;
+  try { cmd = buildCurl(pid, includeKey); } catch (e) { err = e.message; }
+  if (err) return html`<div class="err">${err}</div>`;
+  const hasKey = !!fetchKey(pid);
+  return html`<div>
+    <pre class="mono" style="white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:10px;border-radius:6px;border:1px solid var(--border);margin:0">${cmd}</pre>
+    <div class="row" style="margin-top:6px">
+      <label class="check" title=${hasKey ? '' : 'No key available: enter one in the fetch panel or set a literal options.apiKey'}>
+        <input type="checkbox" disabled=${!hasKey} checked=${includeKey && hasKey} onChange=${e => setIncludeKey(e.target.checked)} />
+        Insert the actual API key${hasKey ? '' : ' (none available)'}</label>
+      <span class="grow" />
+      <button class="small primary" onClick=${() => copy(cmd)}>Copy command</button>
+    </div>
+    <p class="note" style="margin:6px 0 0">For bash / zsh. {env:…} and {file:…} references in the config become shell
+      variables / <span class="mono">$(cat …)</span>. Only the first page is requested
+      (page size is raised where the API supports it); paste each page's output if there are more.</p>
+  </div>`;
+}
+
+function PasteResponseModal({ pid, opts }) {
+  const [text, setText] = useState('');
+  const [err, setErr] = useState(null);
+  const close = () => setUI({ modal: null });
+  return html`<${Modal} title="Fetch models with curl" onClose=${close}>
+    <p class="note">Browsers block cross-origin requests unless the server allows them (CORS); curl doesn't have that
+      restriction. Run this command in a terminal, then paste the JSON it prints below.</p>
+    <${CurlBlock} pid=${pid} />
+    <div class="row" style="margin-top:12px"><textarea rows="10" value=${text} onInput=${e => { setText(e.target.value); setErr(null); }} spellcheck="false"
+      placeholder='Paste the response here, e.g. {"object":"list","data":[{"id":"model-a"}, ...]}' /></div>
+    ${err && html`<div class="err">${err}</div>`}
+    <div class="actions"><button onClick=${close}>Cancel</button>
+      <button class="primary" disabled=${!text.trim()} onClick=${() => {
+        try {
+          const items = parseModelsResponse(parseJsonc(text.trim()));
+          const n = mergeFetched(pid, items, opts);
+          toast(`${items.length} models in response, ${n} new`);
+          close();
+        } catch (e) { setErr(e.message); }
+      }}>Import models</button></div><//>`;
+}
+
+function PluginModal({ pid }) {
+  const candidates = Object.keys(v1Map()).filter(id => isCustom(prov(id)));
+  const [sel, setSel] = useState(candidates.includes(pid) ? [pid] : [...candidates.slice(0, 1)]);
+  const close = () => setUI({ modal: null });
+  const code = buildStripPlugin(sel.length ? sel : [pid]);
+  return html`<${Modal} title="Strip cache_control plugin (OpenCode 1.x)" onClose=${close}>
+    <p class="note" style="margin-top:-6px">Wraps the provider's fetch and deletes <span class="mono">cache_control</span> /
+      <span class="mono">cacheControl</span> from request bodies. This is the community workaround from
+      <a href="https://github.com/anomalyco/opencode/issues/6473" target="_blank" rel="noopener" style="color:var(--accent)">#6473</a>;
+      it can't be tested here, so check it with your gateway.</p>
+    <div class="row">
+      <span class="note">Providers:</span>
+      ${candidates.map(id => html`<label class="check"><input type="checkbox" checked=${sel.includes(id)}
+        onChange=${e => setSel(e.target.checked ? [...sel, id] : sel.filter(x => x !== id))} /><span class="mono">${id}</span></label>`)}
+    </div>
+    <ol class="note" style="padding-left:20px">
+      <li>Save it as <span class="mono">~/.config/opencode/plugin/strip-cache-control.js</span> (all projects) or
+        <span class="mono">.opencode/plugin/strip-cache-control.js</span> (one project).</li>
+      <li>The hook only runs when OpenCode has stored credentials for the provider. For each provider run
+        <span class="mono">opencode auth login</span>, pick <b>Other</b>, enter the provider id, then the API key.</li>
+      <li>Restart OpenCode.</li>
+    </ol>
+    <pre class="mono" style="white-space:pre;overflow:auto;max-height:320px;background:var(--bg);padding:10px;border-radius:6px;border:1px solid var(--border);margin:0">${code}</pre>
+    <div class="actions"><button onClick=${close}>Close</button>
+      <button onClick=${() => copy(code)}>Copy</button>
+      <button class="primary" onClick=${() => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+        a.download = 'strip-cache-control.js';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      }}>Download strip-cache-control.js</button></div><//>`;
+}
+
+function AliasModal({ pid }) {
+  const ids = cacheReport(pid).claude;
+  const [aliases, setAliases] = useState(() => Object.fromEntries(ids.map(id => [id, suggestAlias(modelObj(pid, id, false)?.id || id)])));
+  const close = () => setUI({ modal: null });
+  const bad = Object.values(aliases).some(a => !a.trim() || isClaude(a.trim()));
+  return html`<${Modal} title="Rename models to gateway aliases" onClose=${close}>
+    <p class="note" style="margin-top:-6px">First create these aliases on the gateway so each one routes to the real model
+      (for LiteLLM: a <span class="mono">model_list</span> entry whose <span class="mono">model_name</span> is the alias).
+      Each model is then renamed to its alias, its old id becomes the display name, and references such as
+      <span class="mono">model</span> are updated. Aliases must not contain "claude" or "anthropic".</p>
+    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:6px 10px;align-items:center">
+      ${ids.map(id => html`
+        <span class="mono" style="overflow:hidden;text-overflow:ellipsis">${id}</span><span class="muted">→</span>
+        <input type="text" class="mono" value=${aliases[id]} onInput=${e => setAliases({ ...aliases, [id]: e.target.value })}
+          style=${isClaude(aliases[id]) ? 'border-color:var(--danger)' : ''} />`)}
+    </div>
+    <div class="actions"><button onClick=${close}>Cancel</button>
+      <button class="primary" disabled=${bad} onClick=${() => { applyAliases(pid, aliases); close(); }}>Rename ${ids.length} model(s)</button></div><//>`;
+}
+
+// One test: model picker, browser test, curl command, result.
+function TestRow({ pid, label, hint, ids, initial, baseURL, bearer, cache, onResult }) {
+  const [model, setModel] = useState(initial || ids[0] || '');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [showCurl, setShowCurl] = useState(false);
+  const [includeKey, setIncludeKey] = useState(false);
+  const listId = 'tl-' + label.replace(/\W/g, '');
+  const spec = () => anthropicTestRequest(pid, { baseURL, bearer, model: model.trim(), cache });
+  const run = async () => {
+    setBusy(true); setResult(null);
+    const r = await runTestRequest(spec());
+    setResult(r); setBusy(false);
+    onResult && onResult(r);
+  };
+  const u = result?.usage;
+  return html`<div style="padding:8px 0;border-top:1px dashed var(--border)">
+    <div class="row">
+      <span style="width:150px" title=${hint || ''}>${label}</span>
+      <datalist id=${listId}>${ids.map(id => html`<option value=${id} />`)}</datalist>
+      <div style="flex:1;min-width:180px"><input type="text" class="mono" list=${listId} value=${model} onInput=${e => setModel(e.target.value)} placeholder="model id" /></div>
+      <button class="small primary" disabled=${busy || !model.trim()} onClick=${run}>${busy ? 'Testing…' : 'Test in browser'}</button>
+      <button class="small" disabled=${!model.trim()} onClick=${() => setShowCurl(!showCurl)}>${showCurl ? 'Hide curl' : 'curl'}</button>
+    </div>
+    ${hint && html`<div class="note" style="margin:2px 0 0 158px">${hint}</div>`}
+    ${result && html`<div class="mono" style="margin:6px 0 0 158px;font-size:12px">
+      ${result.ok
+        ? html`<span style="color:var(--ok)">✓ HTTP ${result.status}</span> · ${result.ms} ms · reply: "${result.reply}"${result.model ? ` · model: ${result.model}` : ''}
+          ${u && html`<div class="muted">usage: in ${u.input_tokens ?? '?'}, out ${u.output_tokens ?? '?'}${u.cache_creation_input_tokens != null ? `, cache write ${u.cache_creation_input_tokens}` : ''}${u.cache_read_input_tokens != null ? `, cache read ${u.cache_read_input_tokens}` : ''}</div>`}`
+        : html`<span class="err">✗ ${result.status ? `HTTP ${result.status}: ` : ''}${result.message}</span>`}
+    </div>`}
+    ${showCurl && model.trim() && html`<div style="margin:6px 0 0 158px">
+      <pre class="mono" style="white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:8px;border-radius:6px;border:1px solid var(--border);margin:0">${renderCurl(spec(), includeKey)}</pre>
+      <div class="row" style="margin-top:4px">
+        <label class="check"><input type="checkbox" disabled=${!fetchKey(pid)} checked=${includeKey && !!fetchKey(pid)} onChange=${e => setIncludeKey(e.target.checked)} />Insert the actual API key</label>
+        <span class="grow" />
+        <button class="small" onClick=${() => copy(renderCurl(spec(), includeKey))}>Copy command</button>
+      </div></div>`}
+  </div>`;
+}
+
+// Tests against <baseURL>/messages: one Anthropic model and, when there is one, one non-Anthropic model
+// (some gateways translate other providers' models onto the Anthropic API shape too).
+function AnthropicTests({ pid, baseURL, bearer, claudeIds, otherIds, onOtherResult }) {
+  const [cache, setCache] = useState(true);
+  const [, force] = useState(0);
+  const base = (baseURL || 'https://api.anthropic.com/v1').replace(/\/+$/, '');
+  return html`<div class="fetchbox">
+    <div class="row">
+      <b style="font-size:13px">Test the Anthropic endpoint</b>
+      <span class="note mono">POST ${base}/messages</span><span class="grow" />
+      <label class="check" title="Adds cache_control to the system prompt, like OpenCode does. Short prompts are accepted but not actually cached.">
+        <input type="checkbox" checked=${cache} onChange=${e => setCache(e.target.checked)} />Include a cache_control marker</label>
+    </div>
+    ${!fetchKey(pid) && html`<div class="row" style="margin-top:6px">
+      <span class="note">API key for browser tests (memory only, never saved):</span>
+      <div style="width:240px"><input type="password" class="mono" autocomplete="off" value=${sessionKeys[pid] || ''}
+        onInput=${e => { sessionKeys[pid] = e.target.value; force(x => x + 1); }} /></div></div>`}
+    <div style="margin-top:6px">
+      <${TestRow} key=${'c' + cache} pid=${pid} label="Anthropic model" ids=${claudeIds} baseURL=${baseURL} bearer=${bearer} cache=${cache} />
+      ${otherIds.length > 0 && html`<${TestRow} key=${'o' + cache} pid=${pid} label="Non-Anthropic model" ids=${otherIds}
+        hint="If this also works, the gateway translates other models to the Anthropic API shape."
+        baseURL=${baseURL} bearer=${bearer} cache=${cache} onResult=${onOtherResult} />`}
+    </div>
+    <p class="note" style="margin:6px 0 0">Browser tests can fail on CORS even when the endpoint works; the curl command always shows the real result.</p>
+  </div>`;
+}
+
+function AnthropicModal({ pid }) {
+  const p = prov(pid);
+  const st = modelState(pid);
+  const rep = cacheReport(pid);
+  const [mode, setMode] = useState('split');
+  const [newId, setNewId] = useState(`${pid}-anthropic`);
+  const [name, setName] = useState(`${p.name || pid} (Anthropic API)`);
+  const [baseURL, setBaseURL] = useState(p.options?.baseURL || '');
+  const [bearer, setBearer] = useState(false);
+  const [models, setModels] = useState(rep.enabledClaude);
+  const [original, setOriginal] = useState('remove');
+  const close = () => setUI({ modal: null });
+  const idTaken = hasOwn(providers(), newId.trim());
+  const others = [...st.enabled].filter(id => !isClaude(id, modelObj(pid, id, false)));
+  const listIds = uniq([...rep.claude, ...st.known.filter(id => st.enabled.has(id))]);
+  const ok = mode === 'switch' || (newId.trim() && !idTaken && models.length);
+  const endpoint = (baseURL || 'https://api.anthropic.com/v1').replace(/\/+$/, '') + '/messages';
+  const [otherWorks, setOtherWorks] = useState(false);
+  return html`<${Modal} title="Use an Anthropic-compatible API" onClose=${close}>
+    <p class="note" style="margin-top:-6px">For gateways that also serve Anthropic's Messages API. Models are sent through
+      <span class="mono">@ai-sdk/anthropic</span> instead of the OpenAI-compatible SDK, so OpenCode's cache_control markers
+      arrive in the format the API expects (and prompt caching works).</p>
+    <div class="row">
+      <label class="check"><input type="radio" name="am" checked=${mode === 'split'} onChange=${() => setMode('split')} />
+        Move Claude models to a new Anthropic provider</label>
+      <label class="check"><input type="radio" name="am" checked=${mode === 'switch'} onChange=${() => setMode('switch')} />
+        Switch this whole provider to the Anthropic API</label>
+    </div>
+    <div class="grid2" style="margin-top:10px">
+      <${Field} label="Anthropic API base URL (options.baseURL)" hint=${html`Requests go to <span class="mono">${endpoint}</span>. Usually ends in <span class="mono">/v1</span>; check your gateway's docs.`}>
+        <input type="text" class="mono" value=${baseURL} onInput=${e => setBaseURL(e.target.value)} placeholder="https://gateway.example.com/v1" /><//>
+      <${Field} label="Authentication" hint="@ai-sdk/anthropic sends the key as x-api-key; some gateways want a Bearer token instead.">
+        <select value=${bearer ? 'bearer' : 'x'} onChange=${e => setBearer(e.target.value === 'bearer')}>
+          <option value="x">x-api-key (options.apiKey)</option>
+          <option value="bearer">Also send Authorization: Bearer (options.headers)</option>
+        </select><//>
+      ${mode === 'split' && html`
+        <${Field} label="New provider ID"><input type="text" class="mono" value=${newId} onInput=${e => setNewId(e.target.value)} /><//>
+        <${Field} label="New provider name"><input type="text" value=${name} onInput=${e => setName(e.target.value)} /><//>`}
+    </div>
+    <div style="margin-top:10px"><${AnthropicTests} pid=${pid} baseURL=${baseURL.trim()} bearer=${bearer}
+      claudeIds=${rep.claude.map(id => apiModelId(pid, id))} otherIds=${others.map(id => apiModelId(pid, id))}
+      onOtherResult=${r => setOtherWorks(!!r.ok)} /></div>
+    ${otherWorks && mode === 'split' && html`<p class="note" style="color:var(--ok)">The non-Anthropic model works through this endpoint too, so you can
+      switch the whole provider instead of splitting it. <button class="small" onClick=${() => setMode('switch')}>Switch whole provider</button></p>`}
+    ${mode === 'split' && idTaken && html`<div class="err">A provider with this ID already exists.</div>`}
+    ${mode === 'split' ? html`
+      <div class="field" style="margin-top:10px"><span>Models to move (API key, headers and model config are copied)</span>
+        <div class="mlist" style="max-height:200px;overflow:auto">
+          ${listIds.map(id => html`<label class="mrow check" style="display:flex">
+            <input type="checkbox" checked=${models.includes(id)} onChange=${e => setModels(e.target.checked ? [...models, id] : models.filter(x => x !== id))} />
+            <span class="mono">${id}</span>${isClaude(id, modelObj(pid, id, false)) && html`<span class="badge">claude</span>`}</label>`)}
+          ${!listIds.length && html`<div class="empty">No enabled models.</div>`}
+        </div></div>
+      <div class="row" style="margin-top:8px"><span class="note">On <span class="mono">${pid}</span>:</span>
+        <label class="check"><input type="radio" name="orig" checked=${original === 'remove'} onChange=${() => setOriginal('remove')} />remove them</label>
+        <label class="check"><input type="radio" name="orig" checked=${original === 'disable'} onChange=${() => setOriginal('disable')} />keep them disabled</label>
+      </div>
+      <p class="note">References such as <span class="mono">model</span> are updated to <span class="mono">${newId || '…'}/model</span>.</p>`
+    : others.length > 0 && !otherWorks && html`<p class="note" style="color:var(--warn)">${others.length} enabled non-Claude model(s) on this provider
+        (${others.slice(0, 5).join(', ')}${others.length > 5 ? ', …' : ''}) will also be sent to the Anthropic API and will probably stop working.
+        Moving only the Claude models is safer, unless the non-Anthropic test above succeeds.</p>`}
+    <div class="actions"><button onClick=${close}>Cancel</button>
+      <button class="primary" disabled=${!ok} onClick=${() => {
+        applyAnthropicCompat(pid, { mode, newId: newId.trim(), name: name.trim(), baseURL: baseURL.trim(), bearer, models, original });
+        close();
+      }}>${mode === 'split' ? `Move ${models.length} model(s)` : 'Switch provider'}</button></div><//>`;
+}
+
+// ---------------------------------------------------------------- general settings
+
+function GeneralEditor() {
+  const set = (k, v) => mutate(() => { if (v === undefined) delete S.config[k]; else S.config[k] = v; }, 'g:' + k);
+  const choices = [];
+  for (const pid of Object.keys(providers())) for (const id of modelState(pid).enabled) choices.push(`${pid}/${id}`);
+  const handled = new Set(['$schema', 'provider', 'providers', 'model', 'small_model', 'disabled_providers', 'enabled_providers']);
+  const others = Object.keys(S.config).filter(k => !handled.has(k));
+  return html`<div>
+    <div class="pe-head"><h2>General</h2></div>
+    <section class="card"><h3>Default models</h3>
+      <datalist id="model-choices">${choices.map(c => html`<option value=${c} />`)}</datalist>
+      <div class="grid2">
+        <${Field} label="model" hint="Default model, format provider/model">
+          <${TextField} mono list="model-choices" value=${S.config.model} onChange=${v => set('model', v)} placeholder="provider/model" /><//>
+        <${Field} label="small_model" hint="Used for lightweight tasks like title generation">
+          <${TextField} mono list="model-choices" value=${S.config.small_model} onChange=${v => set('small_model', v)} placeholder="provider/model" /><//>
+      </div></section>
+    <section class="card"><h3>OpenCode version</h3>
+      <div class="row">
+        <select style="width:auto" value=${targetVersion()} onChange=${e => setTarget(e.target.value)}>
+          <option value="v1">OpenCode 1.x</option><option value="v2">OpenCode 2.x</option></select>
+        <span class="note">${S.settings.target ? 'Chosen by you (stored in this browser).' : 'Inferred from the file.'}
+          Decides the format of new providers and which workarounds are offered.</span>
+      </div>
+      ${targetVersion() === 'v2' && Object.keys(v1Map()).length > 0 && html`<p class="note">${Object.keys(v1Map()).length} provider(s) use the V1
+        <span class="mono">provider</span> format. OpenCode 2 still reads them, but ignores <span class="mono">whitelist</span>/<span class="mono">blacklist</span>
+        and only offers <span class="mono">compatibility</span> options (such as cacheFormat) for native <span class="mono">providers</span> entries.
+        <button class="small" onClick=${() => convertAll('v2')}>Convert all to V2</button></p>`}
+      ${targetVersion() === 'v1' && Object.keys(v2Map()).length > 0 && html`<p class="note" style="color:var(--warn)">${Object.keys(v2Map()).length} provider(s)
+        use the OpenCode 2 <span class="mono">providers</span> format, which OpenCode 1.x does not read.
+        <button class="small primary" onClick=${() => convertAll('v1')}>Convert all to V1</button></p>`}
+    </section>
+    ${(() => {
+      const off = (S.config.disabled_providers || []).includes(ZEN_ID);
+      const blocked = providerBlocked(ZEN_ID);
+      const refs = modelRefs().filter(([, v]) => typeof v === 'string' && v.startsWith(ZEN_ID + '/'));
+      return html`<section class="card"><h3>Built-in OpenCode provider (OpenCode Zen)</h3>
+        <label class="check"><input type="checkbox" checked=${off} onChange=${e => toggleProviderDisabled(ZEN_ID, e.target.checked)} />
+          Disable the built-in <span class="mono">${ZEN_ID}</span> provider</label>
+        <p class="note" style="margin:6px 0 0">Adds <span class="mono">"${ZEN_ID}"</span> to <span class="mono">disabled_providers</span>, which removes the Zen models
+          (including the free ones, whose prompts may be used to improve the models) from the model picker. Works on OpenCode 1.x and 2.x.
+          ${!off && blocked && html` It is already excluded because it's ${blocked}.`}</p>
+        ${refs.length > 0 && html`<p class="note" style="color:var(--warn);margin:6px 0 0">${off ? 'These still point at Zen models and will fail:' : 'Currently using Zen models:'}
+          ${refs.map(([k, v]) => html`<span class="badge" style="margin:2px">${k} = ${v}</span>`)}</p>`}
+      </section>`;
+    })()}
+    <section class="card"><h3>Provider allow / deny lists</h3>
+      <div class="grid2">
+        <${Field} label="disabled_providers" hint="Comma separated provider ids that should not load">
+          <${CommitInput} mono value=${(S.config.disabled_providers || []).join(', ')}
+            onCommit=${v => { const a = v.split(',').map(s => s.trim()).filter(Boolean); set('disabled_providers', a.length ? a : undefined); }} /><//>
+        <${Field} label="enabled_providers" hint="If set, only these providers load">
+          <${CommitInput} mono value=${(S.config.enabled_providers || []).join(', ')}
+            onCommit=${v => { const a = v.split(',').map(s => s.trim()).filter(Boolean); set('enabled_providers', a.length ? a : undefined); }} /><//>
+      </div></section>
+    <section class="card"><h3>Editor settings</h3>
+      <${Field} label="CORS proxy for /models requests (stored in this browser only)"
+        hint=${html`Prefix added before the URL, e.g. <span class="mono">https://my-proxy.example/</span>, or a template containing <span class="mono">{url}</span> (URL-encoded). Leave empty to call endpoints directly. Requests include your API key — only use a proxy you trust.`}>
+        <${TextField} mono value=${S.settings.corsProxy} onChange=${v => { S.settings.corsProxy = v || ''; persist(); bump(); }} /><//>
+    </section>
+    <section class="card"><h3>Other settings</h3>
+      <p class="note">${others.length
+        ? html`These top-level keys aren't edited by this tool's forms and are preserved as-is: ${others.map(k => html`<span class="badge" style="margin:2px">${k}</span>`)}`
+        : 'No other top-level keys.'}</p>
+      <details><summary class="note" style="cursor:pointer">Edit the full config as JSON</summary>
+        <div style="margin-top:8px"><${JsonEditor} rows=${20} value=${S.config} requireObject
+          onApply=${v => mutate(() => { S.config = v; })} /></div></details>
+    </section>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- provider editor
+
+function ProviderEditor({ pid }) {
+  const p = prov(pid);
+  if (!isObj(p)) return html`<div class="empty">Provider "${pid}" is not an object in the config.</div>`;
+  const set = (path, v) => mutate(() => setIn(prov(pid), path, v), `p:${pid}:${path.join('.')}`);
+  const disabled = (S.config.disabled_providers || []).includes(pid);
+  const fmt = fmtOf(pid), paths = P(pid), v2 = fmt === 'v2';
+  return html`<div>
+    <div class="pe-head">
+      <h2>${p.name || pid}</h2><span class="muted mono">${pid}</span>
+      <span class="badge" title=${v2 ? 'Native OpenCode 2 entry under "providers"' : 'Legacy V1 entry under "provider" (OpenCode 2 still reads it)'}>${v2 ? 'V2 · providers' : 'V1 · provider'}</span>
+      <span class="grow" />
+      ${!v2 && targetVersion() === 'v2' && html`<button onClick=${() => convertProviderToV2(pid)} title="Move this entry to the native OpenCode 2 format">Convert to V2</button>`}
+      ${v2 && targetVersion() === 'v1' && html`<button class="primary" onClick=${() => convertProviderToV1(pid)} title="OpenCode 1.x doesn't read &quot;providers&quot;">Convert to V1</button>`}
+      <label class="check"><input type="checkbox" checked=${!disabled} onChange=${e => toggleProviderDisabled(pid, !e.target.checked)} />
+        Provider enabled</label>
+      <button class="danger" onClick=${() => deleteProvider(pid)}>Delete provider</button>
+    </div>
+    <section class="card"><h3>Connection</h3>
+      <datalist id="pkg-list">${(v2 ? V2_PACKAGES() : NPM_PACKAGES).map(n => html`<option value=${n} />`)}</datalist>
+      <div class="grid2">
+        <${Field} label="Provider ID" hint="Key under provider; model refs use id/model. Press Enter to rename.">
+          <${CommitInput} mono value=${pid} onCommit=${v => renameProvider(pid, v)} /><//>
+        <${Field} label="Display name (name)"><${TextField} value=${p.name} onChange=${v => set(['name'], v)} /><//>
+        <${Field} label=${v2 ? 'package' : 'npm'} hint=${v2
+          ? html`Native: <span class="mono">${NATIVE_OAI}</span>; AI SDK packages use the <span class="mono">aisdk:</span> prefix. Empty for built-in providers.`
+          : 'AI SDK package. Leave empty for built-in providers.'}>
+          <${TextField} mono list="pkg-list" value=${getIn(p, paths.pkg)} onChange=${v => set(paths.pkg, v)}
+            placeholder=${v2 ? NATIVE_OAI : '@ai-sdk/openai-compatible'} /><//>
+        <${Field} label=${`Base URL (${paths.baseURL.join('.')})`}>
+          <${TextField} mono value=${getIn(p, paths.baseURL)} onChange=${v => set(paths.baseURL, v)} placeholder=${KNOWN_BASE[pid] || 'https://api.example.com/v1'} /><//>
+        <${Field} label=${`API key (${paths.apiKey.join('.')})`} hint=${html`Prefer <span class="mono">{env:VAR_NAME}</span> or <span class="mono">{file:~/path}</span> over a literal key.`}>
+          <${SecretField} value=${getIn(p, paths.apiKey)} onChange=${v => set(paths.apiKey, v)} placeholder="{env:API_KEY}" /><//>
+      </div>
+      <div class="grid2" style="margin-top:12px">
+        <${Field} label=${`Headers (${paths.headers.join('.')}) — JSON object`}>
+          <${JsonEditor} rows=${3} value=${getIn(p, paths.headers)} requireObject onApply=${v => set(paths.headers, v)} /><//>
+        ${v2 && html`<${Field} label="Extra request body fields (body) — JSON object">
+          <${JsonEditor} rows=${3} value=${p.body} requireObject onApply=${v => set(['body'], v)} /><//>`}
+      </div>
+    </section>
+    <${CacheCard} pid=${pid} />
+    ${isCustom(p) && /@ai-sdk\/anthropic$/.test(pkgOf(p)) && (() => {
+      const st = modelState(pid);
+      const enabled = st.known.filter(id => st.enabled.has(id));
+      const claudeIds = enabled.filter(id => isClaude(id, modelObj(pid, id, false))).map(id => apiModelId(pid, id));
+      const otherIds = enabled.filter(id => !isClaude(id, modelObj(pid, id, false))).map(id => apiModelId(pid, id));
+      return html`<section class="card"><h3>Anthropic API test</h3>
+        <${AnthropicTests} pid=${pid} baseURL=${getIn(p, P(pid).baseURL) || ''} bearer=${false} claudeIds=${claudeIds} otherIds=${otherIds} /></section>`;
+    })()}
+    ${v2 && html`<details class="card"><summary>Compatibility <span class="muted" style="font-weight:normal">— applies to all models; models can override per field</span></summary>
+      <${CompatEditor} value=${p.compatibility} onSet=${(k, v) => set(['compatibility', k], v)} /></details>`}
+    <${ModelsCard} key=${pid} pid=${pid} />
+    <details class="card"><summary>Raw provider JSON <span class="muted" style="font-weight:normal">— every field, including ones without a form</span></summary>
+      <${JsonEditor} rows=${16} value=${p} requireObject onApply=${v => setProviderEntry(pid, v)} /></details>
+  </div>`;
+}
+
+// V2 "compatibility" keys, per https://opencode.ai/v2/docs/models/
+function CompatEditor({ value, onSet, modelLevel }) {
+  const c = isObj(value) ? value : {};
+  const sel = (k, opts) => html`<select value=${c[k] ?? ''} onChange=${e => onSet(k, e.target.value || undefined)}>
+    <option value="">— unset (auto) —</option>${opts.map(o => html`<option value=${o}>${o}</option>`)}</select>`;
+  const tri = k => html`<${TriBool} value=${c[k]} onChange=${v => onSet(k, v)} />`;
+  return html`<div>
+    <datalist id="reasoning-fields"><option value="reasoning" /><option value="reasoning_content" /><option value="reasoning_text" /></datalist>
+    <div class="grid3">
+      <${Field} label="cacheFormat" hint="Adds cache_control markers. Leave unset if the gateway rejects them.">${sel('cacheFormat', ['anthropic', 'alibaba'])}<//>
+      <${Field} label="supportsPromptCacheKey" hint="Send prompt_cache_key">${tri('supportsPromptCacheKey')}<//>
+      <${Field} label="maxTokensField">${sel('maxTokensField', ['max_completion_tokens', 'max_tokens'])}<//>
+      <${Field} label="reasoningField" hint="Stream field carrying reasoning">
+        <${TextField} mono list="reasoning-fields" value=${c.reasoningField} onChange=${v => onSet('reasoningField', v)} /><//>
+      <${Field} label="requireReasoning">${tri('requireReasoning')}<//>
+      <${Field} label="requireFinishReason">${tri('requireFinishReason')}<//>
+      <${Field} label="requireAssistantAfterTool">${tri('requireAssistantAfterTool')}<//>
+      <${Field} label="streamUsage">${tri('streamUsage')}<//>
+      <${Field} label="mediaInput">${sel('mediaInput', ['assets', 'state', 'root'])}<//>
+      ${modelLevel && html`
+        <${Field} label="supportsThinkingBlockBinding">${tri('supportsThinkingBlockBinding')}<//>
+        <${Field} label="supportsEffortUpdates">${tri('supportsEffortUpdates')}<//>`}
+    </div>
+  </div>`;
+}
+
+function CacheCard({ pid }) {
+  const p = prov(pid);
+  const v2 = fmtOf(pid) === 'v2';
+  const rep = cacheReport(pid);
+  const markers = !!(rep.providerFormat || rep.modelFormats.length || rep.explicit.length);
+  // The cache_control problem is specific to Anthropic models: hide the panel when the provider has none.
+  if (!rep.claude.length) return null;
+  const pathStr = path => path.join('.');
+  return html`<section class="card">
+    <h3>Prompt caching (cache_control)</h3>
+    <p class="note" style="margin-top:-6px">Some OpenAI-compatible gateways reject Anthropic-style markers with errors like
+      <span class="mono">messages[0] field "cache_control" cannot be represented by the selected adapter</span>.
+      ${v2 ? html`OpenCode 2 only sends these markers when <span class="mono">compatibility.cacheFormat</span> is set (on the provider or a model)
+      or when they are configured explicitly.` : ''}</p>
+    ${!v2 && targetVersion() === 'v1' ? html`
+      <p class="note">OpenCode <b>1.x</b> attaches cache_control to every model whose id contains "claude" or "anthropic",
+        and has no setting to turn it off (<a href="https://github.com/anomalyco/opencode/issues/6473" target="_blank" rel="noopener" style="color:var(--accent)">#6473</a>).
+        ${rep.enabledClaude.length
+          ? html`Affected here: ${rep.enabledClaude.map(id => html`<span class="badge" style="margin:2px">${id}</span>`)}`
+          : 'No enabled model on this provider matches right now.'}</p>
+      <p class="note">If the gateway rejects the markers, either:</p>
+      <ul class="note" style="margin:0 0 10px;padding-left:20px">
+        <li><b>Use the gateway's Anthropic-compatible API</b>, if it has one (<span class="mono">POST …/v1/messages</span>): Claude models go through
+          <span class="mono">@ai-sdk/anthropic</span>, which sends cache_control in the format Anthropic expects, so prompt caching keeps working.</li>
+        <li><b>Strip them with a plugin</b>: a small local plugin removes cache_control from every request to this provider. No gateway changes needed.</li>
+        <li><b>Use gateway aliases</b>: give the models ids without "claude"/"anthropic" (e.g. LiteLLM <span class="mono">model_name</span>), then rename them here.</li>
+      </ul>
+      <div class="row">
+        <button class="primary" onClick=${() => setUI({ modal: { type: 'anthropic', pid } })}>Test & use Anthropic-compatible API…</button>
+        <button onClick=${() => setUI({ modal: { type: 'plugin', pid } })}>Generate strip plugin…</button>
+        <button disabled=${!rep.claude.length} onClick=${() => setUI({ modal: { type: 'alias', pid } })}>Rename to gateway aliases…</button>
+        ${rep.explicit.length > 0 && html`<button onClick=${() => stripCacheControl(pid)}>Remove ${rep.explicit.length} explicit cache_control option(s)</button>`}
+      </div>`
+    : !v2 ? html`
+      <p class="note">This is a <b>V1</b> entry. OpenCode 2 migrates it in memory, and V1 OpenCode attaches cache_control to every
+        model whose id contains "claude" or "anthropic" on OpenAI-compatible providers, with no option to turn it off.
+        Converting to the native V2 format gives you explicit control through <span class="mono">compatibility.cacheFormat</span>.</p>
+      <div class="row">
+        <button class="primary" onClick=${() => convertProviderToV2(pid)}>Convert to V2</button>
+        ${rep.explicit.length > 0 && html`<button onClick=${() => stripCacheControl(pid)}>Remove ${rep.explicit.length} explicit cache_control option(s)</button>`}
+      </div>`
+    : html`
+      <div class="grid2">
+        <${Field} label="Provider compatibility.cacheFormat">
+          <select value=${rep.providerFormat ?? ''} onChange=${e => mutate(() => setIn(prov(pid), ['compatibility', 'cacheFormat'], e.target.value || undefined))}>
+            <option value="">— unset (no markers on custom gateways) —</option><option value="anthropic">anthropic</option><option value="alibaba">alibaba</option>
+          </select><//>
+        <div class="field"><span>Current state</span><div class="note">
+          ${markers
+            ? html`<span class="err">cache_control will be sent</span>${rep.providerFormat ? ` for all models (provider cacheFormat: ${rep.providerFormat})` : ''}`
+            : html`<span style="color:var(--ok)">No cache_control markers configured</span>`}
+          ${rep.modelFormats.length > 0 && html`<div>Models with cacheFormat: ${rep.modelFormats.map(([id, f]) => html`<span class="badge" style="margin:2px">${id}: ${f}</span>`)}</div>`}
+          ${rep.explicit.length > 0 && html`<div>Explicit markers: ${rep.explicit.map(x => html`<span class="badge" style="margin:2px">${pathStr(x)}</span>`)}</div>`}
+        </div></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class=${markers ? 'primary' : ''} disabled=${!markers} onClick=${() => stripCacheControl(pid)}
+          title="Unset every compatibility.cacheFormat and delete explicit cache_control / cacheControl keys in this provider">
+          Gateway rejects cache_control → remove all cache markers</button>
+        <button disabled=${!rep.enabledClaude.length} onClick=${() => setClaudeCacheFormat(pid, 'anthropic')}
+          title="Set compatibility.cacheFormat: anthropic on each enabled Claude model">
+          Gateway supports it → enable caching on ${rep.enabledClaude.length} Claude model(s)</button>
+      </div>
+      ${/^aisdk:/.test(pkgOf(p)) && html`<p class="note">This provider uses an AI SDK package (<span class="mono">${pkgOf(p)}</span>).
+        If markers are still sent with cacheFormat unset, switch to the native package:
+        <button class="small" onClick=${() => mutate(() => { prov(pid).package = NATIVE_OAI; })}>Use ${NATIVE_OAI}</button></p>`}`}
+  </section>`;
+}
+
+function FetchBox({ pid, opts, setOpts }) {
+  const m = meta(pid);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [, force] = useState(0);
+  const setMeta = (k, v) => mutate(() => { if (v === undefined) delete meta(pid)[k]; else meta(pid)[k] = v; }, `meta:${pid}:${k}`);
+  const run = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const items = await fetchModels(pid);
+      const n = mergeFetched(pid, items, opts);
+      toast(`Fetched ${items.length} models, ${n} new`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const literalKey = fetchKey(pid) && !sessionKeys[pid];
+  return html`<div class="fetchbox">
+    <div class="grid2">
+      <${Field} label="Models endpoint">
+        <${TextField} mono value=${m.fetchUrl} placeholder=${defaultFetchUrl(pid) || 'https://api.example.com/v1/models'} onChange=${v => setMeta('fetchUrl', v)} /><//>
+      <${Field} label="Auth style">
+        <select value=${m.auth || defaultAuth(pid)} onChange=${e => setMeta('auth', e.target.value)}>
+          <option value="bearer">Authorization: Bearer (OpenAI-style)</option>
+          <option value="anthropic">x-api-key (Anthropic)</option>
+          <option value="google">?key= query (Google)</option>
+          <option value="none">No auth</option>
+        </select><//>
+      <${Field} label="API key for fetching (memory only, never saved)"
+        hint=${literalKey ? 'Using the literal key from options.apiKey unless you enter one.' : 'The config key is an {env:}/{file:} reference or empty, so enter it here.'}>
+        <input type="password" class="mono" value=${sessionKeys[pid] || ''} autocomplete="off"
+          onInput=${e => { sessionKeys[pid] = e.target.value; force(x => x + 1); }} /><//>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" disabled=${busy} onClick=${run}>${busy ? 'Fetching…' : 'Fetch models'}</button>
+      <button disabled=${busy} onClick=${() => setUI({ modal: { type: 'paste', pid, opts } })}
+        title="Get a curl command for the request and paste its output (avoids CORS)">curl / paste response…</button>
+      <button class="small" onClick=${() => copyCurl(pid)} title="Copy an equivalent curl command (key referenced as an env var)">Copy curl</button>
+      <label class="check"><input type="checkbox" checked=${opts.enableNew} onChange=${e => setOpts({ ...opts, enableNew: e.target.checked })} />Enable newly found models</label>
+      <label class="check"><input type="checkbox" checked=${opts.addMeta} onChange=${e => setOpts({ ...opts, addMeta: e.target.checked })} />Fill missing names / limits / modalities from response</label>
+      <span class="grow" />
+      ${m.fetchedAt && html`<span class="note">Last fetched ${new Date(m.fetchedAt).toLocaleString()}</span>`}
+    </div>
+    ${err && html`<div class="err" style="margin-top:8px">${err}
+      <div class="row" style="margin-top:6px"><button class="small" onClick=${() => setUI({ modal: { type: 'paste', pid, opts } })}>Get curl command & paste result…</button></div></div>`}
+  </div>`;
+}
+
+function ModelsCard({ pid }) {
+  const m = meta(pid);
+  const st = modelState(pid);
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [sort, setSort] = useState('az');
+  const [expanded, setExpanded] = useState(null);
+  const [opts, setOpts] = useState({ enableNew: st.known.length === 0, addMeta: isCustom(prov(pid)) });
+  const fetched = m.fetched ? new Set(m.fetched) : null;
+  const newIds = new Set(m.newIds || []);
+  const nameOf = id => modelObj(pid, id, false)?.name;
+  const ql = q.trim().toLowerCase();
+  let ids = st.known.filter(id => !ql || id.toLowerCase().includes(ql) || String(nameOf(id) || '').toLowerCase().includes(ql));
+  ids = ids.filter(id => {
+    switch (filter) {
+      case 'enabled': return st.enabled.has(id);
+      case 'disabled': return !st.enabled.has(id);
+      case 'new': return newIds.has(id);
+      case 'stale': return fetched && !fetched.has(id);
+      default: return true;
+    }
+  });
+  if (sort === 'az') ids = [...ids].sort((a, b) => a.localeCompare(b));
+  const staleIds = fetched ? st.known.filter(id => !fetched.has(id)) : [];
+
+  return html`<section class="card">
+    <div class="row" style="margin-bottom:12px">
+      <h3 style="margin:0">Models</h3>
+      <span class="badge">${st.enabled.size} / ${st.known.length} enabled</span>
+      <span class="grow" />
+      <span class="note">Disabled models:</span>
+      <select style="width:auto" value=${m.mode} onChange=${e => setMode(pid, e.target.value)}>
+        ${Object.entries(MODES[fmtOf(pid)]).map(([k, v]) => html`<option value=${k}>${v}</option>`)}
+      </select>
+    </div>
+    ${m.mode === 'omit' && !isCustom(prov(pid)) && html`<p class="note" style="margin-top:-4px">Note: for built-in providers, omitting a model doesn't hide it — the catalog still provides it. Use ${fmtOf(pid) === 'v2' ? '"disabled": true' : 'blacklist'} mode.</p>`}
+    <${FetchBox} pid=${pid} opts=${opts} setOpts=${setOpts} />
+    <div class="toolbar">
+      <input type="text" placeholder="Search models…" value=${q} onInput=${e => setQ(e.target.value)} />
+      <select value=${filter} onChange=${e => setFilter(e.target.value)}>
+        <option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option>
+        <option value="new">New in last fetch</option><option value="stale" disabled=${!fetched}>Not returned by endpoint</option>
+      </select>
+      <select value=${sort} onChange=${e => setSort(e.target.value)}><option value="az">A–Z</option><option value="config">Config order</option></select>
+      <span class="grow" />
+      <button class="small" disabled=${!ids.length} onClick=${() => setEnabled(pid, ids, true)}>Enable ${ids.length === st.known.length ? 'all' : 'shown'}</button>
+      <button class="small" disabled=${!ids.length} onClick=${() => setEnabled(pid, ids, false)}>Disable ${ids.length === st.known.length ? 'all' : 'shown'}</button>
+      ${staleIds.length > 0 && html`<button class="small danger" title="Remove models the endpoint no longer returns"
+        onClick=${() => confirm(`Remove ${staleIds.length} model(s) not returned by the endpoint?\n\n${staleIds.join('\n')}`) && removeModels(pid, staleIds)}>
+        Remove ${staleIds.length} stale</button>`}
+    </div>
+    <div class="mlist">
+      ${ids.length === 0 && html`<div class="empty">${st.known.length ? 'No models match.' : 'No models yet — fetch them from the endpoint or add one below.'}</div>`}
+      ${ids.map(id => {
+        const on = st.enabled.has(id);
+        const obj = modelObj(pid, id, false);
+        const configured = isObj(obj) && Object.keys(obj).length > 0;
+        return html`<div key=${id}>
+          <div class=${'mrow' + (on ? '' : ' off')}>
+            <input type="checkbox" checked=${on} title=${on ? 'Disable' : 'Enable'} onChange=${() => setEnabled(pid, [id], !on)} />
+            <div class="mid" onClick=${() => setExpanded(expanded === id ? null : id)}>
+              <span class="mono">${id}</span>
+              ${obj?.name && obj.name !== id && html`<span class="muted">${obj.name}</span>`}
+            </div>
+            ${newIds.has(id) && html`<span class="badge new">new</span>`}
+            ${fetched && !fetched.has(id) && html`<span class="badge stale" title="Not returned by the last /models fetch">stale</span>`}
+            ${obj?.limit?.context && html`<span class="badge" title="Context window">${fmtTokens(obj.limit.context)} ctx</span>`}
+            ${obj?.compatibility?.cacheFormat && html`<span class="badge stale" title="compatibility.cacheFormat: cache_control markers are sent">cache: ${obj.compatibility.cacheFormat}</span>`}
+            ${(() => {
+              const inMods = getIn(obj, MOD_PATHS[fmtOf(pid)].input);
+              if (!Array.isArray(inMods)) return null;
+              const extra = inMods.filter(x => x !== 'text');
+              return html`<span class="badge" title=${'Input modalities: ' + inMods.join(', ')}>${extra.length ? 'in: ' + extra.join('+') : 'text only'}</span>`;
+            })()}
+            ${configured && html`<span class="badge cfg" title="Has custom config">cfg</span>`}
+            <button class="icon" title="Edit model config" onClick=${() => setExpanded(expanded === id ? null : id)}>${expanded === id ? '▾' : '✎'}</button>
+            <button class="icon" title="Remove from config" onClick=${() => removeModels(pid, [id])}>✕</button>
+          </div>
+          ${expanded === id && html`<${ModelEditor} pid=${pid} id=${id} />`}
+        </div>`;
+      })}
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div style="width:320px"><${CommitInput} mono clearOnCommit placeholder="Add model by ID and press Enter…" value="" onCommit=${v => addModel(pid, v)} /></div>
+    </div>
+  </section>`;
+}
+
+// Input / output modalities. V1: modalities.{input,output} (both lists required together);
+// V2: capabilities.{input,output}.
+const MODALITIES = ['text', 'image', 'audio', 'video', 'pdf'];
+const MOD_PATHS = {
+  v1: { input: ['modalities', 'input'], output: ['modalities', 'output'] },
+  v2: { input: ['capabilities', 'input'], output: ['capabilities', 'output'] },
+};
+// What OpenCode assumes when nothing is set (V2 documents text+image in, text out for unknown models).
+const modalityDefaults = fmt => fmt === 'v2' ? { input: ['text', 'image'], output: ['text'] } : { input: ['text'], output: ['text'] };
+const sortModalities = list => [...list].sort((a, b) =>
+  (MODALITIES.includes(a) ? MODALITIES.indexOf(a) : 99) - (MODALITIES.includes(b) ? MODALITIES.indexOf(b) : 99));
+
+function ModalityEditor({ pid, id, obj }) {
+  const fmt = fmtOf(pid), paths = MOD_PATHS[fmt], def = modalityDefaults(fmt);
+  const cur = { input: getIn(obj, paths.input), output: getIn(obj, paths.output) };
+  const anySet = Array.isArray(cur.input) || Array.isArray(cur.output);
+  const toggle = (dir, m, on) => mutate(() => {
+    const o = modelObj(pid, id, true);
+    for (const d of ['input', 'output']) {
+      const existing = getIn(o, paths[d]);
+      let list = Array.isArray(existing) ? [...existing] : null;
+      if (d === dir) {
+        list ??= [...def[d]];
+        list = sortModalities(on ? uniq([...list, m]) : list.filter(x => x !== m));
+      } else if (fmt === 'v1' && !list) list = [...def[d]];
+      if (list) setIn(o, paths[d], list);
+    }
+  });
+  const reset = () => mutate(() => {
+    const o = modelObj(pid, id, true);
+    setIn(o, paths.input, undefined);
+    setIn(o, paths.output, undefined);
+  });
+  const row = dir => {
+    const set = Array.isArray(cur[dir]);
+    const list = set ? cur[dir] : def[dir];
+    const options = uniq([...MODALITIES, ...(set ? cur[dir] : [])]);
+    return html`<div class="row" style="margin-top:4px">
+      <span style="width:60px" class="note">${dir}</span>
+      ${options.map(m => {
+        const checked = list.includes(m);
+        return html`<label class="check" style=${set ? '' : 'opacity:.55'}>
+          <input type="checkbox" checked=${checked} disabled=${checked && list.length === 1}
+            title=${checked && list.length === 1 ? 'At least one modality is required' : ''}
+            onChange=${e => toggle(dir, m, e.target.checked)} />${m}</label>`;
+      })}
+    </div>`;
+  };
+  return html`<div class="field">
+    <span>Modalities (<span class="mono">${paths.input.slice(0, -1).join('.')}.input / .output</span>)</span>
+    ${row('input')}${row('output')}
+    <div class="row" style="margin-top:4px">
+      <small class="muted">${anySet
+        ? 'Set explicitly.'
+        : fmt === 'v2' ? 'Not set: OpenCode uses the catalog, or text + image in / text out for unknown models (shown faded).'
+          : 'Not set: OpenCode uses the models.dev catalog entry (faded boxes show a text-only starting point).'}
+        ${fmt === 'v1' && ' OpenCode 1.x also needs "attachment": true before it lets you attach files or images.'}</small>
+      <span class="grow" />
+      ${anySet && html`<button class="small" onClick=${reset}>Reset to default</button>`}
+    </div>
+  </div>`;
+}
+
+function ModelEditor({ pid, id }) {
+  const obj = modelObj(pid, id, false) || {};
+  const set = (path, v) => setModelField(pid, id, path, v);
+  const g = path => path.reduce((o, k) => o?.[k], obj);
+  if (fmtOf(pid) === 'v2') return html`<div class="medit">
+    <div class="grid3">
+      <${Field} label="Model key" hint="Press Enter to rename"><${CommitInput} mono value=${id} onCommit=${v => mutate(() => renameModelKey(pid, id, v))} /><//>
+      <${Field} label="name"><${TextField} value=${obj.name} onChange=${v => set(['name'], v)} placeholder=${id} /><//>
+      <${Field} label="modelID (id sent to the API)"><${TextField} mono value=${obj.modelID} onChange=${v => set(['modelID'], v)} placeholder=${id} /><//>
+      <${Field} label="limit.context"><${NumField} value=${g(['limit', 'context'])} onChange=${v => set(['limit', 'context'], v)} placeholder="200000" /><//>
+      <${Field} label="limit.output"><${NumField} value=${g(['limit', 'output'])} onChange=${v => set(['limit', 'output'], v)} placeholder="32000" /><//>
+      <${Field} label="capabilities.tools"><${TriBool} value=${g(['capabilities', 'tools'])} onChange=${v => set(['capabilities', 'tools'], v)} /><//>
+      <${Field} label="compatibility.cacheFormat" hint="Unset = no cache_control">
+        <select value=${g(['compatibility', 'cacheFormat']) ?? ''} onChange=${e => set(['compatibility', 'cacheFormat'], e.target.value || undefined)}>
+          <option value="">— unset —</option><option value="anthropic">anthropic</option><option value="alibaba">alibaba</option></select><//>
+    </div>
+    <div style="margin-top:10px"><${ModalityEditor} pid=${pid} id=${id} obj=${obj} /></div>
+    <details style="margin-top:10px"><summary class="note" style="cursor:pointer">All compatibility overrides for this model</summary>
+      <div style="margin-top:8px"><${CompatEditor} modelLevel value=${obj.compatibility} onSet=${(k, v) => set(['compatibility', k], v)} /></div></details>
+    <div style="margin-top:10px"><${Field} label="Raw model JSON (settings, headers, body, capabilities, variants, …)">
+      <${JsonEditor} rows=${6} value=${obj} requireObject onApply=${v => replaceModel(pid, id, v)} /><//></div>
+  </div>`;
+  return html`<div class="medit">
+    <div class="grid3">
+      <${Field} label="Model key" hint="Press Enter to rename"><${CommitInput} mono value=${id} onCommit=${v => mutate(() => renameModelKey(pid, id, v))} /><//>
+      <${Field} label="name"><${TextField} value=${obj.name} onChange=${v => set(['name'], v)} placeholder=${id} /><//>
+      <${Field} label="id (API model id override)"><${TextField} mono value=${obj.id} onChange=${v => set(['id'], v)} placeholder=${id} /><//>
+      <${Field} label="limit.context"><${NumField} value=${g(['limit', 'context'])} onChange=${v => set(['limit', 'context'], v)} placeholder="e.g. 128000" /><//>
+      <${Field} label="limit.output"><${NumField} value=${g(['limit', 'output'])} onChange=${v => set(['limit', 'output'], v)} placeholder="e.g. 16384" /><//>
+      <${Field} label="tool_call"><${TriBool} value=${obj.tool_call} onChange=${v => set(['tool_call'], v)} /><//>
+      <${Field} label="reasoning"><${TriBool} value=${obj.reasoning} onChange=${v => set(['reasoning'], v)} /><//>
+      <${Field} label="attachment"><${TriBool} value=${obj.attachment} onChange=${v => set(['attachment'], v)} /><//>
+      <${Field} label="temperature"><${TriBool} value=${obj.temperature} onChange=${v => set(['temperature'], v)} /><//>
+      <${Field} label="cost.input ($/1M tokens)"><${NumField} value=${g(['cost', 'input'])} onChange=${v => set(['cost', 'input'], v)} /><//>
+      <${Field} label="cost.output ($/1M tokens)"><${NumField} value=${g(['cost', 'output'])} onChange=${v => set(['cost', 'output'], v)} /><//>
+    </div>
+    <div style="margin-top:10px"><${ModalityEditor} pid=${pid} id=${id} obj=${obj} /></div>
+    <div style="margin-top:10px"><${Field} label="Raw model JSON (options, modalities, headers, variants, …)">
+      <${JsonEditor} rows=${6} value=${obj} requireObject onApply=${v => replaceModel(pid, id, v)} /><//></div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- app shell
+
+function Sidebar() {
+  const pids = Object.keys(providers());
+  const disabled = S.config.disabled_providers || [];
+  const select = id => { S.selected = id; persist(); bump(); };
+  return html`<aside>
+    <div class=${'navitem' + (S.selected === '__general' ? ' active' : '')} onClick=${() => select('__general')}>
+      <span class="title">⚙ General</span></div>
+    <div class="navlabel">Providers</div>
+    ${pids.map(pid => {
+      const p = prov(pid);
+      const st = isObj(p) ? modelState(pid) : null;
+      return html`<div class=${'navitem' + (S.selected === pid ? ' active' : '') + (disabled.includes(pid) ? ' off' : '')}
+        onClick=${() => select(pid)} title=${pid}>
+        <span class="title">${(isObj(p) && p.name) || pid}</span>
+        ${fmtOf(pid) === 'v1' && html`<span class="badge" title="V1 provider entry">v1</span>`}
+        ${st && html`<span class="count">${st.enabled.size}/${st.known.length}</span>`}</div>`;
+    })}
+    ${!pids.length && html`<div class="note" style="padding:4px 9px">No providers yet.</div>`}
+    <div style="padding:8px 4px"><button style="width:100%" onClick=${() => setUI({ modal: { type: 'add' } })}>+ Add provider</button></div>
+  </aside>`;
+}
+
+function OutputPanel({ out, warnings }) {
+  return html`<section class="output">
+    <div class="tabs">
+      <button class=${'tab' + (UI.outputTab === 'output' ? ' active' : '')} onClick=${() => setUI({ outputTab: 'output' })}>Output</button>
+      <button class=${'tab' + (UI.outputTab === 'changes' ? ' active' : '')} onClick=${() => setUI({ outputTab: 'changes' })}>
+        Changes${out.changes ? ` (${out.changes.length})` : ''}</button>
+      <span class="grow" />
+      <button class="small" onClick=${() => copy(out.text)}>Copy</button>
+      <button class="small primary" onClick=${() => download(out.text)}>Download</button>
+    </div>
+    ${warnings.length > 0 && html`<div class="warnings">${warnings.map(w => html`<div>${w}</div>`)}</div>`}
+    ${UI.outputTab === 'output' ? html`<pre>${out.text}</pre>` : html`<div class="changes">
+      ${!out.changes ? html`<p class="note">New config — nothing imported to compare against.</p>`
+        : !out.changes.length ? html`<p class="note">No changes from the imported file.</p>`
+        : out.changes.map(c => html`<div class="change"><span class=${'k ' + c.kind}>${c.kind}</span>
+            <span>${c.path.join(' › ')}${c.kind !== 'removed' ? html`<span class="muted"> = ${JSON.stringify(c.value).slice(0, 80)}</span>` : ''}</span></div>`)}
+    </div>`}
+  </section>`;
+}
+
+function App() {
+  useStore();
+  const out = useMemo(generateOutput, [version]);
+  const warnings = useMemo(computeWarnings, [version]);
+
+  useEffect(() => {
+    window.__appMounted = true;
+    const key = e => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+    };
+    let depth = 0;
+    const isFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
+    const enter = e => { if (!isFile(e)) return; e.preventDefault(); depth++; setUI({ dragging: true }); };
+    const leave = e => { if (!isFile(e)) return; if (--depth <= 0) { depth = 0; setUI({ dragging: false }); } };
+    const over = e => { if (isFile(e)) e.preventDefault(); };
+    const drop = e => {
+      if (!isFile(e)) return;
+      e.preventDefault(); depth = 0; setUI({ dragging: false });
+      const f = e.dataTransfer.files[0];
+      if (f && (S.origText == null || confirm(`Replace the current config with ${f.name}?`))) importFile(f);
+    };
+    window.addEventListener('keydown', key);
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('dragover', over);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('drop', drop);
+    };
+  }, []);
+
+  const changed = out.changes ? out.changes.length : null;
+  const sel = S.selected !== '__general' && hasOwn(providers(), S.selected) ? S.selected : '__general';
+  return html`<div class="shell">
+    <header>
+      <h1><span>◆</span> OpenCode Config Editor</h1>
+      <span class="filechip">${S.fileName}${changed ? html` <b>● ${changed} change${changed > 1 ? 's' : ''}</b>` : ''}</span>
+      <span class="grow" />
+      <select style="width:auto" value=${targetVersion()} onChange=${e => setTarget(e.target.value)} title="Target OpenCode version">
+        <option value="v1">OpenCode 1.x</option><option value="v2">OpenCode 2.x</option></select>
+      <button onClick=${newConfig}>New</button>
+      <button class="primary" onClick=${() => setUI({ modal: { type: 'import' } })}>Import…</button>
+      ${S.origText != null && html`<button disabled=${!changed} title="Discard all edits"
+        onClick=${() => confirm('Discard all edits and revert to the imported file?') && mutate(() => { S.config = clone(S.origConfig); S.stash = {}; S.meta = {}; })}>Revert</button>`}
+      <button disabled=${!history.length} onClick=${undo} title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button disabled=${!future.length} onClick=${redo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+      <button onClick=${() => setUI({ showOutput: !UI.showOutput })}>${UI.showOutput ? 'Hide' : 'Show'} output</button>
+      <button onClick=${() => copy(out.text)}>Copy</button>
+      <button class="primary" onClick=${() => download(out.text)}>Download</button>
+    </header>
+    <div class=${'layout' + (UI.showOutput ? '' : ' no-output')}>
+      <${Sidebar} />
+      <main class="editor">${sel === '__general' ? html`<${GeneralEditor} />` : html`<${ProviderEditor} key=${sel} pid=${sel} />`}</main>
+      ${UI.showOutput && html`<${OutputPanel} out=${out} warnings=${warnings} />`}
+    </div>
+    ${UI.modal?.type === 'import' && html`<${ImportModal} />`}
+    ${UI.modal?.type === 'add' && html`<${AddProviderModal} />`}
+    ${UI.modal?.type === 'paste' && html`<${PasteResponseModal} pid=${UI.modal.pid} opts=${UI.modal.opts} />`}
+    ${UI.modal?.type === 'plugin' && html`<${PluginModal} pid=${UI.modal.pid} />`}
+    ${UI.modal?.type === 'alias' && html`<${AliasModal} pid=${UI.modal.pid} />`}
+    ${UI.modal?.type === 'anthropic' && html`<${AnthropicModal} pid=${UI.modal.pid} />`}
+    ${UI.toast && html`<div class=${'toast' + (UI.toast.error ? ' error' : '')}>${UI.toast.msg}</div>`}
+    ${UI.dragging && html`<div class="dropzone">Drop opencode.json to import</div>`}
+  </div>`;
+}
+
+load();
+render(html`<${App} />`, document.getElementById('app'));
+</script>
+</body>
+</html>
