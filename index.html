@@ -111,6 +111,8 @@
   .tpl small { display: block; color: var(--muted); font-size: 11.5px; }
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--border); padding: 8px 16px; border-radius: 8px; z-index: 20; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
   .toast.error { border-color: var(--danger); }
+  .localbar { background: #23324d; border-bottom: 1px solid var(--border); padding: 7px 14px; font-size: 13px; }
+  .localdone { position: fixed; inset: 0; background: var(--bg); z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-size: 16px; }
   .dropzone { position: fixed; inset: 0; background: rgba(61,123,224,.18); border: 3px dashed var(--accent); z-index: 30; display: flex; align-items: center; justify-content: center; font-size: 22px; pointer-events: none; }
 </style>
 </head>
@@ -129,6 +131,19 @@ import * as jsonc from 'https://cdn.jsdelivr.net/npm/jsonc-parser@3.3.1/+esm';
 // ---------------------------------------------------------------- constants
 
 const LS_KEY = 'opencode-config-editor:v1';
+// Local mode: a local program (for example a setup script) that serves this page can inject
+//   window.__OPENCODE_LOCAL__ = { api, path, providerId?, target?, auth?, returnUrl? }
+// in a script element before the end of head. The editor then edits the config file on that
+// machine instead of importing and downloading files; without it the page behaves as usual.
+// The program provides:
+//   GET  {api}/config        -> { path, text, planned?, models? }  text: the file on disk ("" if
+//                               missing); planned: the config to start from (default: the file);
+//                               models: model IDs to list for providerId (auth default "bearer")
+//   ANY  {api}/proxy?url=... -> forwards the editor's /models and test requests
+//   POST {api}/save   { text } -> the edited file text; POST {api}/cancel -> the user cancelled
+// With returnUrl the page navigates there after Save or Cancel. Keep the global's name: hosts
+// check that the page contains it. examples/local_host.py is a sample host.
+const LOCAL = window.__OPENCODE_LOCAL__ || null;
 const SCHEMA_URL = 'https://opencode.ai/config.json';
 
 const KNOWN_BASE = {
@@ -279,6 +294,7 @@ const snapshot = () => JSON.stringify({ config: S.config, stash: S.stash, meta: 
 function restore(snap) { Object.assign(S, JSON.parse(snap)); }
 
 function persist() {
+  if (LOCAL) return; // the file on disk is the source of truth; never mix in an old session
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
       config: S.config, origText: S.origText, fileName: S.fileName, stash: S.stash,
@@ -288,6 +304,7 @@ function persist() {
 }
 
 function load() {
+  if (LOCAL) return;
   try {
     const d = JSON.parse(localStorage.getItem(LS_KEY));
     if (d && isObj(d.config)) {
@@ -1390,6 +1407,51 @@ function download(text) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+// ---------------------------------------------------------------- local mode
+// GET {api}/config returns the file text on disk ("text", empty when it does not exist) and
+// the config the setup script plans to write ("planned"). The file text becomes the imported
+// original, so the output keeps its comments and formatting and only the edits are applied.
+async function localBoot() {
+  const res = await fetch(LOCAL.api + '/config');
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const d = await res.json();
+  if (d.text && d.text.trim()) {
+    S.origText = d.text;
+    S.origConfig = parseJsonc(d.text);
+    if (!isObj(S.origConfig)) S.origConfig = {};
+  }
+  S.config = clone(isObj(d.planned) ? d.planned : S.origConfig || {});
+  S.fileName = d.path;
+  S.stash = {};
+  S.meta = {};
+  const pid = LOCAL.providerId;
+  if (pid && hasOwn(providers(), pid)) {
+    // List every model the host knows so ones left out of the planned config can be enabled.
+    // gatewayModels is the older name of models.
+    S.meta[pid] = { mode: 'omit', auth: LOCAL.auth || 'bearer', fetched: d.models || d.gatewayModels || [] };
+    S.selected = pid;
+  }
+  // Requests go through the host, which can add credentials it holds.
+  S.settings = { ...S.settings, corsProxy: LOCAL.api + '/proxy?url={url}' };
+  // The installed OpenCode's major version, when the host could detect it.
+  if (LOCAL.target === 'v1' || LOCAL.target === 'v2') S.settings.target = LOCAL.target;
+}
+
+async function localFinish(action, text) {
+  try {
+    const res = await fetch(LOCAL.api + '/' + action, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text || '' }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+    // Opened from the web setup: go back to it.
+    if (LOCAL.returnUrl) { location.href = LOCAL.returnUrl; return; }
+    setUI({ localDone: action === 'save' ? 'Saved. Return to the terminal to review and apply the changes.' : 'Cancelled. Return to the terminal.' });
+  } catch (e) {
+    toast(`${action === 'save' ? 'Save' : 'Cancel'} failed: ${e.message}`, true);
+  }
+}
+
 async function copy(text) {
   try { await navigator.clipboard.writeText(text); toast('Copied to clipboard'); }
   catch { toast('Clipboard not available', true); }
@@ -1777,7 +1839,7 @@ function GeneralEditor() {
       <div class="row">
         <select style="width:auto" value=${targetVersion()} onChange=${e => setTarget(e.target.value)}>
           <option value="v1">OpenCode 1.x</option><option value="v2">OpenCode 2.x</option></select>
-        <span class="note">${S.settings.target ? 'Chosen by you (stored in this browser).' : 'Inferred from the file.'}
+        <span class="note">${LOCAL?.target && S.settings.target === LOCAL.target ? 'Detected from the installed OpenCode.' : S.settings.target ? (LOCAL ? 'Chosen by you.' : 'Chosen by you (stored in this browser).') : 'Inferred from the file.'}
           Decides the format of new providers and which workarounds are offered.</span>
       </div>
       ${targetVersion() === 'v2' && Object.keys(v1Map()).length > 0 && html`<p class="note">${Object.keys(v1Map()).length} provider(s) use the V1
@@ -2279,7 +2341,8 @@ function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
     };
     let depth = 0;
-    const isFile = e => [...(e.dataTransfer?.types || [])].includes('Files');
+    // Local mode edits the file on disk; importing another file would replace its original text.
+    const isFile = e => !LOCAL && [...(e.dataTransfer?.types || [])].includes('Files');
     const enter = e => { if (!isFile(e)) return; e.preventDefault(); depth++; setUI({ dragging: true }); };
     const leave = e => { if (!isFile(e)) return; if (--depth <= 0) { depth = 0; setUI({ dragging: false }); } };
     const over = e => { if (isFile(e)) e.preventDefault(); };
@@ -2312,16 +2375,21 @@ function App() {
       <span class="grow" />
       <select style="width:auto" value=${targetVersion()} onChange=${e => setTarget(e.target.value)} title="Target OpenCode version">
         <option value="v1">OpenCode 1.x</option><option value="v2">OpenCode 2.x</option></select>
-      <button onClick=${newConfig}>New</button>
-      <button class="primary" onClick=${() => setUI({ modal: { type: 'import' } })}>Import…</button>
+      ${!LOCAL && html`<button onClick=${newConfig}>New</button>
+      <button class="primary" onClick=${() => setUI({ modal: { type: 'import' } })}>Import…</button>`}
       ${S.origText != null && html`<button disabled=${!changed} title="Discard all edits"
         onClick=${() => confirm('Discard all edits and revert to the imported file?') && mutate(() => { S.config = clone(S.origConfig); S.stash = {}; S.meta = {}; })}>Revert</button>`}
       <button disabled=${!history.length} onClick=${undo} title="Undo (Ctrl+Z)">↶ Undo</button>
       <button disabled=${!future.length} onClick=${redo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
       <button onClick=${() => setUI({ showOutput: !UI.showOutput })}>${UI.showOutput ? 'Hide' : 'Show'} output</button>
       <button onClick=${() => copy(out.text)}>Copy</button>
-      <button class="primary" onClick=${() => download(out.text)}>Download</button>
+      ${LOCAL ? html`<button onClick=${() => confirm(LOCAL.returnUrl ? 'Discard these edits and go back to the setup page?' : 'Discard the browser edits and go back to the terminal?') && localFinish('cancel')}>Cancel</button>
+      <button class="primary" onClick=${() => localFinish('save', out.text)}>Save to system</button>`
+        : html`<button class="primary" onClick=${() => download(out.text)}>Download</button>`}
     </header>
+    ${LOCAL && html`<div class="localbar">Editing <b class="mono">${LOCAL.path}</b>. ${LOCAL.returnUrl
+      ? '"Save to system" returns to the setup page, which shows the changes before anything is written (a backup is kept).'
+      : '"Save to system" hands the result back to the terminal, which shows the changes and asks before writing (a backup is kept).'}</div>`}
     <div class=${'layout' + (UI.showOutput ? '' : ' no-output')}>
       <${Sidebar} />
       <main class="editor">${sel === '__general' ? html`<${GeneralEditor} />` : html`<${ProviderEditor} key=${sel} pid=${sel} />`}</main>
@@ -2335,11 +2403,19 @@ function App() {
     ${UI.modal?.type === 'anthropic' && html`<${AnthropicModal} pid=${UI.modal.pid} />`}
     ${UI.toast && html`<div class=${'toast' + (UI.toast.error ? ' error' : '')}>${UI.toast.msg}</div>`}
     ${UI.dragging && html`<div class="dropzone">Drop opencode.json to import</div>`}
+    ${UI.localDone && html`<div class="localdone"><b>${UI.localDone}</b><span class="muted">You can close this tab.</span></div>`}
   </div>`;
 }
 
-load();
-render(html`<${App} />`, document.getElementById('app'));
+if (LOCAL) {
+  localBoot().then(() => render(html`<${App} />`, document.getElementById('app'))).catch(e => {
+    window.__appMounted = true;
+    document.querySelector('.boot').textContent = 'Could not load the config from the setup script: ' + e.message;
+  });
+} else {
+  load();
+  render(html`<${App} />`, document.getElementById('app'));
+}
 </script>
 </body>
 </html>
