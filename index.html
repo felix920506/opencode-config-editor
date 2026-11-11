@@ -136,13 +136,13 @@ const LS_KEY = 'opencode-config-editor:v1';
 // in a script element before the end of head. The editor then edits the config file on that
 // machine instead of importing and downloading files; without it the page behaves as usual.
 // The program provides:
-//   GET  {api}/config        -> { path, text, planned, models? }  text: the file on disk ("" if
-//                               missing); planned: the config to start from; models: model IDs to
-//                               list for providerId (fetched with auth, default "bearer")
+//   GET  {api}/config        -> { path, text, planned?, models? }  text: the file on disk ("" if
+//                               missing); planned: the config to start from (default: the file);
+//                               models: model IDs to list for providerId (auth default "bearer")
 //   ANY  {api}/proxy?url=... -> forwards the editor's /models and test requests
 //   POST {api}/save   { text } -> the edited file text; POST {api}/cancel -> the user cancelled
 // With returnUrl the page navigates there after Save or Cancel. Keep the global's name: hosts
-// check that the page contains it.
+// check that the page contains it. examples/local_host.py is a sample host.
 const LOCAL = window.__OPENCODE_LOCAL__ || null;
 const SCHEMA_URL = 'https://opencode.ai/config.json';
 
