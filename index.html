@@ -162,7 +162,7 @@ const KNOWN_BASE = {
   lmstudio: 'http://127.0.0.1:1234/v1',
 };
 
-const V2_PACKAGES = () => ['@opencode/ai/providers/openai-compatible', ...NPM_PACKAGES.map(n => 'aisdk:' + n)];
+const V2_PACKAGES = () => ['@opencode/ai/providers/openai-compatible', '@opencode/ai/providers/openrouter', ...NPM_PACKAGES.map(n => 'aisdk:' + n)];
 
 const NPM_PACKAGES = [
   '@ai-sdk/openai-compatible', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google',
@@ -344,6 +344,52 @@ function useStore() {
   useEffect(() => { const l = () => set(v => v + 1); listeners.add(l); return () => listeners.delete(l); }, []);
 }
 
+// ---------------------------------------------------------------- models.dev catalog
+//
+// OpenCode preloads models for known provider ids from models.dev. Those models exist without a
+// config entry, while any other model on such a provider only exists if "models" lists it. Only the
+// model ids are kept (per provider, minus deprecated ones, which OpenCode drops too).
+
+const CATALOG_URL = 'https://models.dev/api.json';
+const CATALOG_LS = 'opencode-config-editor:catalog:v1';
+const CATALOG_TTL = 12 * 3600e3;
+const CAT = { ids: null, at: 0, loading: false, error: null }; // ids: Map(providerId -> Set(modelId))
+// Used only until the catalog has loaded.
+const FALLBACK_CATALOG = new Set(['opencode', 'openrouter', 'openai', 'anthropic', 'google', 'groq', 'deepseek', 'mistral',
+  'xai', 'togetherai', 'fireworks-ai', 'cerebras', 'github-copilot', 'amazon-bedrock', 'azure', 'google-vertex']);
+
+function setCatalog(obj, at) {
+  CAT.ids = new Map(Object.entries(obj).map(([pid, ids]) => [pid, new Set(ids)]));
+  CAT.at = at;
+}
+
+async function fetchCatalog() {
+  if (CAT.loading) return;
+  CAT.loading = true; CAT.error = null; bump();
+  try {
+    const res = await fetch(CATALOG_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (!isObj(json)) throw new Error('unexpected response');
+    const obj = {};
+    for (const [pid, p] of Object.entries(json)) {
+      if (isObj(p?.models)) obj[pid] = Object.keys(p.models).filter(id => p.models[id]?.status !== 'deprecated');
+    }
+    if (!Object.keys(obj).length) throw new Error('no providers in response');
+    setCatalog(obj, Date.now());
+    try { localStorage.setItem(CATALOG_LS, JSON.stringify({ at: CAT.at, ids: obj })); } catch (e) { console.warn('catalog cache failed', e); }
+  } catch (e) { CAT.error = e.message; }
+  CAT.loading = false; bump();
+}
+
+function initCatalog() {
+  try {
+    const d = JSON.parse(localStorage.getItem(CATALOG_LS));
+    if (d && isObj(d.ids) && typeof d.at === 'number') setCatalog(d.ids, d.at);
+  } catch (e) { console.warn('catalog cache unreadable', e); }
+  if (!CAT.ids || Date.now() - CAT.at > CATALOG_TTL) fetchCatalog();
+}
+
 // ---------------------------------------------------------------- providers & models
 //
 // Provider entries can live in the V1 map ("provider": npm/options/blacklist...) or the native
@@ -365,7 +411,20 @@ const PATHS = {
 const P = pid => PATHS[fmtOf(pid)];
 const getIn = (o, path) => path.reduce((x, k) => (x == null ? undefined : x[k]), o);
 const pkgOf = p => (isObj(p) && (p.package || p.npm)) || '';
+// The entry brings its own package or endpoint.
 const isCustom = p => isObj(p) && !!(p.npm || p.package || p.options?.baseURL || p.settings?.baseURL);
+
+// What the models.dev catalog says about a provider. `has`: OpenCode preloads models for it (overriding
+// its package or base URL doesn't change that). `ids`: those model ids, null while the catalog isn't
+// loaded. `inCat(id)`: the model exists without a config entry (assumed so while `ids` is unknown).
+function catInfo(pid) {
+  const p = prov(pid);
+  const cid = fmtOf(pid) === 'v2' && typeof p?.canonical === 'string' ? p.canonical : pid;
+  const ids = CAT.ids ? CAT.ids.get(cid) || null : null;
+  const has = CAT.ids ? !!ids : FALLBACK_CATALOG.has(cid) || !isCustom(p);
+  return { has, ids, inCat: id => has && (!ids || ids.has(id)) };
+}
+const hasCatalog = pid => catInfo(pid).has;
 // Ids that make OpenCode treat a model as Anthropic (and attach cache_control in 1.x).
 const isClaude = (id, obj) => /claude|anthropic/i.test(id + ' ' + (obj?.modelID || obj?.id || ''));
 
@@ -374,7 +433,7 @@ function inferMode(pid, p) {
   if (!isObj(p)) return 'omit';
   if (Array.isArray(p.whitelist)) return 'whitelist';
   if (Array.isArray(p.blacklist) && p.blacklist.length) return 'blacklist';
-  if (!isCustom(p)) return 'blacklist'; // built-in provider: models come from the catalog
+  if (hasCatalog(pid)) return 'blacklist'; // catalog provider: omitting a model doesn't disable it
   return 'omit';
 }
 function meta(pid) {
@@ -387,23 +446,27 @@ function modelState(pid) {
   const p = prov(pid) || {}, m = meta(pid);
   const models = isObj(p.models) ? p.models : {};
   const stash = S.stash[pid] || {};
+  const cat = catInfo(pid);
+  const catIds = cat.ids ? [...cat.ids] : [];
   if (fmtOf(pid) === 'v2') {
     const isDis = id => isObj(models[id]) && models[id].disabled === true;
-    const known = uniq([...Object.keys(models), ...Object.keys(stash), ...(m.fetched || [])]);
+    const known = uniq([...Object.keys(models), ...Object.keys(stash), ...(m.fetched || []), ...catIds]);
     const enabled = m.mode === 'omit'
       ? new Set(Object.keys(models).filter(id => !isDis(id)))
-      // Built-in providers serve catalog models that aren't listed; custom ones only serve listed models.
-      : new Set(known.filter(id => hasOwn(models, id) ? !isDis(id) : !isCustom(p)));
-    return { known, enabled, models, stash, bl: [], wl: null };
+      // Catalog models are served without being listed; any other model only when it is listed.
+      : new Set(known.filter(id => hasOwn(models, id) ? !isDis(id) : cat.inCat(id)));
+    return { known, enabled, models, stash, bl: [], wl: null, cat };
   }
   const bl = Array.isArray(p.blacklist) ? p.blacklist : [];
   const wl = Array.isArray(p.whitelist) ? p.whitelist : null;
-  const known = uniq([...Object.keys(models), ...Object.keys(stash), ...bl, ...(wl || []), ...(m.fetched || [])]);
+  const known = uniq([...Object.keys(models), ...Object.keys(stash), ...bl, ...(wl || []), ...(m.fetched || []), ...catIds]);
+  // On a catalog provider a model has to be in the catalog or listed in "models" to exist at all.
+  const served = id => !cat.has || hasOwn(models, id) || cat.inCat(id);
   let enabled;
-  if (m.mode === 'whitelist') enabled = new Set((wl || []).filter(id => !bl.includes(id)));
-  else if (m.mode === 'blacklist') enabled = new Set(known.filter(id => !bl.includes(id)));
+  if (m.mode === 'whitelist') enabled = new Set((wl || []).filter(id => !bl.includes(id) && served(id)));
+  else if (m.mode === 'blacklist') enabled = new Set(known.filter(id => !bl.includes(id) && served(id)));
   else enabled = new Set(Object.keys(models).filter(id => !bl.includes(id)));
-  return { known, enabled, models, stash, bl, wl };
+  return { known, enabled, models, stash, bl, wl, cat };
 }
 
 // Rewrite the provider so exactly `enabled` models are active under `mode`.
@@ -415,13 +478,14 @@ function applyEnabled(pid, enabled, mode) {
   if (!isObj(p.models)) p.models = {};
   for (const id of st.known) {
     const inModels = hasOwn(p.models, id);
-    // Built-in providers get models from the catalog, so only add entries that carry config.
-    const fromStash = hasOwn(stash, id) && (isCustom(p) || Object.keys(stash[id] || {}).length > 0);
+    // Catalog models exist without an entry, so they only get one when it carries config.
+    const inCat = st.cat.inCat(id);
+    const fromStash = (hasOwn(stash, id) && (!inCat || Object.keys(stash[id] || {}).length > 0)) || (st.cat.has && !inCat);
     if (enabled.has(id)) {
       if (inModels) {
         if (v2 && isObj(p.models[id]) && hasOwn(p.models[id], 'disabled')) {
           delete p.models[id].disabled;
-          if (!isCustom(p) && !Object.keys(p.models[id]).length) delete p.models[id];
+          if (inCat && !Object.keys(p.models[id]).length) delete p.models[id];
         }
       } else if (mode === 'omit' || fromStash) {
         p.models[id] = stash[id] ?? {};
@@ -437,14 +501,16 @@ function applyEnabled(pid, enabled, mode) {
       if (inModels) {
         if (!isObj(p.models[id])) p.models[id] = {};
         p.models[id].disabled = true;
-      } else if (!isCustom(p)) {
+      } else if (inCat) {
         p.models[id] = { ...(isObj(stash[id]) ? stash[id] : {}), disabled: true };
         delete stash[id];
       }
     }
   }
   if (!v2) {
-    const disabled = st.known.filter(id => !enabled.has(id));
+    // An unlisted model outside the catalog is already unavailable; it needs no blacklist entry.
+    const disabled = st.known.filter(id => !enabled.has(id)
+      && (!st.cat.has || hasOwn(p.models, id) || st.cat.inCat(id) || st.bl.includes(id)));
     if (mode === 'blacklist' && disabled.length) p.blacklist = disabled; else delete p.blacklist;
     if (mode === 'whitelist') p.whitelist = st.known.filter(id => enabled.has(id)); else delete p.whitelist;
   }
@@ -643,7 +709,7 @@ function v1ProviderToV2(p, pid = 'provider') {
   if (Array.isArray(p.blacklist)) p.blacklist.forEach(disable);
   if (Array.isArray(p.whitelist)) {
     Object.keys(out.models || {}).filter(id => !p.whitelist.includes(id)).forEach(disable);
-    if (!isCustom(p)) notes.push(`${pid}: whitelist can only be converted for models listed in the config; other catalog models stay enabled`);
+    if (hasCatalog(pid)) notes.push(`${pid}: whitelist can only be converted for models listed in the config; other catalog models stay enabled`);
   }
   return { obj: out, notes };
 }
@@ -732,7 +798,7 @@ function v2ProviderToV1(p, pid = 'provider') {
         const r = v2ModelToV1(mo, notes, `${pid}/${mid}`);
         if (r.disabled) disabledIds.push(mid);
         // A built-in model entry that only said "disabled" becomes just a blacklist entry.
-        if (!(r.disabled && !isCustom(p) && isObj(r.obj) && !Object.keys(r.obj).length)) out.models[mid] = r.obj;
+        if (!(r.disabled && catInfo(pid).inCat(mid) && isObj(r.obj) && !Object.keys(r.obj).length)) out.models[mid] = r.obj;
       }
       if (!Object.keys(out.models).length) delete out.models;
     } else out[k] = v;
@@ -1040,7 +1106,40 @@ function parseModelsResponse(json) {
       output: typeof output === 'number' ? output : undefined,
       inMods: normModalities(it.architecture?.input_modalities ?? it.modalities?.input ?? it.input_modalities),
       outMods: normModalities(it.architecture?.output_modalities ?? it.modalities?.output ?? it.output_modalities),
+      ...parseOpenRouterExtras(it),
     });
+  }
+  return out;
+}
+
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+const perMillion = v => {
+  const n = typeof v === 'string' && v.trim() ? Number(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) && n >= 0 ? Number((n * 1e6).toPrecision(8)) : undefined;
+};
+
+// Tool support, reasoning controls and pricing as OpenRouter's /models reports them
+// (supported_parameters, reasoning, pricing in USD per token). Absent fields stay undefined.
+function parseOpenRouterExtras(it) {
+  const out = {};
+  const sp = Array.isArray(it.supported_parameters) ? it.supported_parameters : null;
+  if (sp) out.tools = sp.includes('tools');
+  if (sp || isObj(it.reasoning)) {
+    const r = isObj(it.reasoning) ? it.reasoning : null;
+    if (!r && !sp.includes('reasoning')) out.reasoning = { supported: false };
+    else {
+      out.reasoning = { supported: true };
+      const efforts = Array.isArray(r?.supported_efforts) ? r.supported_efforts.filter(x => typeof x === 'string') : [];
+      const rank = x => (EFFORT_ORDER.indexOf(x) + 1) || EFFORT_ORDER.length + 1;
+      if (efforts.length) out.reasoning.effort = [...efforts].sort((a, b) => rank(a) - rank(b));
+      else if (r?.mandatory !== true) out.reasoning.toggle = true;
+    }
+  }
+  if (isObj(it.pricing)) {
+    const input = perMillion(it.pricing.prompt), output = perMillion(it.pricing.completion);
+    if (input !== undefined && output !== undefined) {
+      out.cost = { input, output, cacheRead: perMillion(it.pricing.input_cache_read), cacheWrite: perMillion(it.pricing.input_cache_write) };
+    }
   }
   return out;
 }
@@ -1054,7 +1153,32 @@ function normModalities(list) {
 
 function fillMeta(obj, it, fmt = 'v1') {
   if (it.name && obj.name === undefined) obj.name = it.name;
-  if (it.context && it.output && obj.limit === undefined) obj.limit = { context: it.context, output: it.output };
+  if (obj.limit === undefined) {
+    if (it.context && it.output) obj.limit = { context: it.context, output: it.output };
+    else if (it.context && fmt === 'v2') obj.limit = { context: it.context }; // V1 needs both
+  }
+  // OpenCode assumes tool support, so only the lack of it needs stating.
+  const toolsPath = fmt === 'v2' ? ['capabilities', 'tools'] : ['tool_call'];
+  if (it.tools === false && getIn(obj, toolsPath) === undefined) setIn(obj, toolsPath, false);
+  if (it.reasoning?.supported) {
+    // V2 builds the model's reasoning variants from this; V1 only has a boolean.
+    if (fmt === 'v2') { if (getIn(obj, ['capabilities', 'reasoning']) === undefined) setIn(obj, ['capabilities', 'reasoning'], { ...it.reasoning }); }
+    else if (obj.reasoning === undefined) obj.reasoning = true;
+  }
+  if (it.cost && obj.cost === undefined) {
+    const { input, output, cacheRead, cacheWrite } = it.cost;
+    obj.cost = { input, output };
+    if (fmt === 'v2') {
+      if (cacheRead !== undefined || cacheWrite !== undefined) {
+        obj.cost.cache = {};
+        if (cacheRead !== undefined) obj.cost.cache.read = cacheRead;
+        if (cacheWrite !== undefined) obj.cost.cache.write = cacheWrite;
+      }
+    } else {
+      if (cacheRead !== undefined) obj.cost.cache_read = cacheRead;
+      if (cacheWrite !== undefined) obj.cost.cache_write = cacheWrite;
+    }
+  }
   const paths = MOD_PATHS[fmt];
   if ((it.inMods || it.outMods) && getIn(obj, paths.input) === undefined && getIn(obj, paths.output) === undefined) {
     const def = modalityDefaults(fmt);
@@ -1248,10 +1372,12 @@ function mergeFetched(pid, items, { enableNew, addMeta }) {
     const known = new Set(st.known);
     const newIds = [];
     for (const it of items) {
+      // Catalog models already carry OpenCode's own metadata; the response would only override it.
+      const fill = addMeta && !st.cat.inCat(it.id);
       if (!known.has(it.id)) {
         newIds.push(it.id);
-        stash[it.id] = addMeta ? fillMeta({}, it, fmtOf(pid)) : {};
-      } else if (addMeta) {
+        stash[it.id] = fill ? fillMeta({}, it, fmtOf(pid)) : {};
+      } else if (fill) {
         const obj = modelObj(pid, it.id, false);
         if (isObj(obj)) fillMeta(obj, it, fmtOf(pid));
         else if (!hasOwn(st.models, it.id)) {
@@ -1333,7 +1459,7 @@ function computeWarnings() {
         w.push(`${pid}: sends cache_control markers; if the gateway rejects them, use "Remove all cache markers" in the provider's prompt caching section`);
     }
     if (isObj(p.models)) for (const [mid, mo] of Object.entries(p.models)) {
-      if (isObj(mo?.limit) && (typeof mo.limit.context !== 'number' || typeof mo.limit.output !== 'number'))
+      if (fmt === 'v1' && isObj(mo?.limit) && (typeof mo.limit.context !== 'number' || typeof mo.limit.output !== 'number'))
         w.push(`${pid}/${mid}: "limit" needs both context and output`);
     }
   }
@@ -1341,7 +1467,7 @@ function computeWarnings() {
     if (typeof v !== 'string' || !v) continue;
     const i = v.indexOf('/');
     if (i < 0) { w.push(`${k}: should be "provider/model"`); continue; }
-    const pid = v.slice(0, i), mid = v.slice(i + 1);
+    const pid = v.slice(0, i), mid = v.slice(i + 1).replace(/#[^#]*$/, ''); // drop a "#variant"
     if (prov(pid)) {
       const st = modelState(pid);
       if (st.known.includes(mid) && !st.enabled.has(mid)) w.push(`${k}: points to disabled model ${v}`);
@@ -2081,7 +2207,7 @@ function FetchBox({ pid, opts, setOpts }) {
         title="Get a curl command for the request and paste its output (avoids CORS)">curl / paste response…</button>
       <button class="small" onClick=${() => copyCurl(pid)} title="Copy an equivalent curl command (key referenced as an env var)">Copy curl</button>
       <label class="check"><input type="checkbox" checked=${opts.enableNew} onChange=${e => setOpts({ ...opts, enableNew: e.target.checked })} />Enable newly found models</label>
-      <label class="check"><input type="checkbox" checked=${opts.addMeta} onChange=${e => setOpts({ ...opts, addMeta: e.target.checked })} />Fill missing names / limits / modalities from response</label>
+      <label class="check"><input type="checkbox" checked=${opts.addMeta} onChange=${e => setOpts({ ...opts, addMeta: e.target.checked })} />Fill missing names / limits / capabilities / cost from response</label>
       <span class="grow" />
       ${m.fetchedAt && html`<span class="note">Last fetched ${new Date(m.fetchedAt).toLocaleString()}</span>`}
     </div>
@@ -2097,7 +2223,11 @@ function ModelsCard({ pid }) {
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('az');
   const [expanded, setExpanded] = useState(null);
-  const [opts, setOpts] = useState({ enableNew: st.known.length === 0, addMeta: isCustom(prov(pid)) });
+  const [opts, setOpts] = useState({ enableNew: st.known.length === 0, addMeta: true });
+  const [hideBatch, setHideBatch] = useState(true);
+  const cat = st.cat;
+  const isBatch = id => id.endsWith(':batch');
+  const batchCount = st.known.filter(isBatch).length;
   const fetched = m.fetched ? new Set(m.fetched) : null;
   const newIds = new Set(m.newIds || []);
   const nameOf = id => modelObj(pid, id, false)?.name;
@@ -2109,11 +2239,13 @@ function ModelsCard({ pid }) {
       case 'disabled': return !st.enabled.has(id);
       case 'new': return newIds.has(id);
       case 'stale': return fetched && !fetched.has(id);
+      case 'extra': return !cat.inCat(id);
       default: return true;
     }
   });
+  if (hideBatch && !ql.includes('batch')) ids = ids.filter(id => !isBatch(id) || hasOwn(st.models, id));
   if (sort === 'az') ids = [...ids].sort((a, b) => a.localeCompare(b));
-  const staleIds = fetched ? st.known.filter(id => !fetched.has(id)) : [];
+  const staleIds = fetched ? st.known.filter(id => !fetched.has(id) && !(cat.ids && cat.inCat(id))) : [];
 
   return html`<section class="card">
     <div class="row" style="margin-bottom:12px">
@@ -2125,15 +2257,24 @@ function ModelsCard({ pid }) {
         ${Object.entries(MODES[fmtOf(pid)]).map(([k, v]) => html`<option value=${k}>${v}</option>`)}
       </select>
     </div>
-    ${m.mode === 'omit' && !isCustom(prov(pid)) && html`<p class="note" style="margin-top:-4px">Note: for built-in providers, omitting a model doesn't hide it — the catalog still provides it. Use ${fmtOf(pid) === 'v2' ? '"disabled": true' : 'blacklist'} mode.</p>`}
+    ${m.mode === 'omit' && cat.has && html`<p class="note" style="margin-top:-4px">Note: for built-in providers, omitting a model doesn't hide it — the catalog still provides it. Use ${fmtOf(pid) === 'v2' ? '"disabled": true' : 'blacklist'} mode.</p>`}
+    ${cat.ids && html`<p class="note" style="margin-top:-4px">OpenCode already provides ${cat.ids.size} models for this provider from its
+      <a href="https://models.dev" target="_blank" rel="noopener" style="color:var(--accent)">models.dev</a> catalog; they need no config entry.
+      A model outside the catalog only exists while it is listed in <span class="mono">models</span>, so enabling one writes an entry for it.</p>`}
+    ${!CAT.ids && html`<p class="note" style="margin-top:-4px">${CAT.loading ? 'Loading the OpenCode model catalog from models.dev…'
+      : html`<span style="color:var(--warn)">Could not load the OpenCode model catalog from models.dev${CAT.error ? ` (${CAT.error})` : ''}, so the editor can't tell
+        which models OpenCode already provides.</span> <button class="small" onClick=${fetchCatalog}>Retry</button>`}</p>`}
     <${FetchBox} pid=${pid} opts=${opts} setOpts=${setOpts} />
     <div class="toolbar">
       <input type="text" placeholder="Search models…" value=${q} onInput=${e => setQ(e.target.value)} />
       <select value=${filter} onChange=${e => setFilter(e.target.value)}>
         <option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option>
+        ${cat.ids && html`<option value="extra">Not in OpenCode catalog</option>`}
         <option value="new">New in last fetch</option><option value="stale" disabled=${!fetched}>Not returned by endpoint</option>
       </select>
       <select value=${sort} onChange=${e => setSort(e.target.value)}><option value="az">A–Z</option><option value="config">Config order</option></select>
+      ${batchCount > 0 && html`<label class="check" title="OpenRouter lists a :batch variant for many models. Ones already in the config are always shown.">
+        <input type="checkbox" checked=${hideBatch} onChange=${e => setHideBatch(e.target.checked)} />Hide ${batchCount} :batch</label>`}
       <span class="grow" />
       <button class="small" disabled=${!ids.length} onClick=${() => setEnabled(pid, ids, true)}>Enable ${ids.length === st.known.length ? 'all' : 'shown'}</button>
       <button class="small" disabled=${!ids.length} onClick=${() => setEnabled(pid, ids, false)}>Disable ${ids.length === st.known.length ? 'all' : 'shown'}</button>
@@ -2155,7 +2296,8 @@ function ModelsCard({ pid }) {
               ${obj?.name && obj.name !== id && html`<span class="muted">${obj.name}</span>`}
             </div>
             ${newIds.has(id) && html`<span class="badge new">new</span>`}
-            ${fetched && !fetched.has(id) && html`<span class="badge stale" title="Not returned by the last /models fetch">stale</span>`}
+            ${cat.ids && !cat.inCat(id) && html`<span class="badge" title="Not in OpenCode's models.dev catalog: it only exists while it is listed in the config">not in catalog</span>`}
+            ${fetched && !fetched.has(id) && !(cat.ids && cat.inCat(id)) && html`<span class="badge stale" title="Not returned by the last /models fetch">stale</span>`}
             ${obj?.limit?.context && html`<span class="badge" title="Context window">${fmtTokens(obj.limit.context)} ctx</span>`}
             ${obj?.compatibility?.cacheFormat && html`<span class="badge stale" title="compatibility.cacheFormat: cache_control markers are sent">cache: ${obj.compatibility.cacheFormat}</span>`}
             ${(() => {
@@ -2407,6 +2549,7 @@ function App() {
   </div>`;
 }
 
+initCatalog();
 if (LOCAL) {
   localBoot().then(() => render(html`<${App} />`, document.getElementById('app'))).catch(e => {
     window.__appMounted = true;
